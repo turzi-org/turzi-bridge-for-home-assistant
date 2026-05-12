@@ -115,14 +115,8 @@ const STYLES = `
   /* Batch-select checkbox (left) */
   .row-cb { flex-shrink: 0; width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
 
-  /* Expose checkbox (right) — styled prominently */
-  .expose-cb-wrap {
-    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-    width: 32px; height: 32px;
-  }
-  .expose-cb {
-    width: 20px; height: 20px; accent-color: var(--accent); cursor: pointer;
-  }
+  /* Expose switch (right) */
+  ha-switch { flex-shrink: 0; }
 
   .entity-icon { width: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .entity-icon ha-icon { --mdc-icon-size: 20px; color: var(--sub); }
@@ -344,9 +338,7 @@ class TurziPanel extends HTMLElement {
           <div class="entity-id">${e.entity_id}</div>
         </div>
         ${badgeHtml}
-        <div class="expose-cb-wrap">
-          <input type="checkbox" class="expose-cb" ${e.is_exposed ? "checked" : ""} data-id="${e.entity_id}" title="${e.is_exposed ? "Exposed — click to exclude" : "Not exposed — click to expose"}">
-        </div>
+        <ha-switch class="expose-sw" ${e.is_exposed ? "checked" : ""} data-id="${e.entity_id}" title="${e.is_exposed ? "Exposed — click to exclude" : "Not exposed — click to expose"}"></ha-switch>
       </div>`;
     }).join("") || `<div class="empty"><ha-icon icon="mdi:magnify"></ha-icon>No entities match.</div>`;
 
@@ -405,11 +397,11 @@ class TurziPanel extends HTMLElement {
       })
     );
 
-    // Expose checkboxes (individual toggle)
-    c.querySelectorAll(".expose-cb").forEach(cb =>
-      cb.addEventListener("change", async ev => {
+    // Expose switches (individual toggle)
+    c.querySelectorAll(".expose-sw").forEach(sw =>
+      sw.addEventListener("change", async ev => {
         ev.stopPropagation();
-        await this._setExpose([cb.dataset.id], cb.checked);
+        await this._setExpose([sw.dataset.id], ev.target.checked);
       })
     );
 
