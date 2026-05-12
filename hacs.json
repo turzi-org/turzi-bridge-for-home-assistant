@@ -1,8 +1,8 @@
 {
-  "name": "Turzi App Connector",
+  "name": "Turzi HA App Connector",
   "content_in_root": false,
   "render_readme": true,
-  "domains": ["turzi_app_connector"],
+  "domains": ["turzi_ha_app_connector"],
   "country": false,
   "homeassistant": "2024.1.0"
 }

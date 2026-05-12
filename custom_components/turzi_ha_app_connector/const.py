@@ -1,6 +1,6 @@
 """Constants for the Turzi App Connector integration."""
 
-DOMAIN = "turzi_app_connector"
+DOMAIN = "turzi_ha_app_connector"
 
 # Config entry keys (stored in entry.data)
 CONF_BROKER = "broker"
@@ -11,9 +11,30 @@ CONF_HOUSE_ID = "house_id"
 CONF_USE_TLS = "use_tls"
 
 # Options entry keys (stored in entry.options)
+CONF_EXPOSE_LABEL = "expose_label"
+CONF_LABEL_MODE = "label_mode"
 CONF_INCLUDED_DOMAINS = "included_domains"
 CONF_ADDITIONAL_ENTITIES = "additional_entities"
 CONF_EXCLUDED_ENTITIES = "excluded_entities"
+
+# Internal tracking (stored in bridge instance, not persisted)
+CONF_AUTO_LABELED_ENTITIES = "auto_labeled_entities"
+
+
+class LabelMode:
+    """Label management mode constants."""
+
+    SEED = "seed"
+    AUTOMATIC = "automatic"
+    MIXED = "mixed"
+
+
+# Default label (empty = disabled)
+DEFAULT_EXPOSE_LABEL = ""
+
+# Default label management mode
+DEFAULT_LABEL_MODE = LabelMode.SEED
+
 
 # Default port
 DEFAULT_PORT = 1883

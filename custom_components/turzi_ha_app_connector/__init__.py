@@ -10,8 +10,12 @@ from homeassistant.core import HomeAssistant
 from .const import (
     CONF_ADDITIONAL_ENTITIES,
     CONF_EXCLUDED_ENTITIES,
+    CONF_EXPOSE_LABEL,
     CONF_INCLUDED_DOMAINS,
+    CONF_LABEL_MODE,
+    DEFAULT_EXPOSE_LABEL,
     DEFAULT_INCLUDED_DOMAINS,
+    DEFAULT_LABEL_MODE,
     DOMAIN,
 )
 from .mqtt_bridge import TurziMqttBridge
@@ -71,6 +75,8 @@ async def _async_options_updated(
         return
 
     bridge.update_entity_filter(
+        expose_label=entry.options.get(CONF_EXPOSE_LABEL, DEFAULT_EXPOSE_LABEL),
+        label_mode=entry.options.get(CONF_LABEL_MODE, DEFAULT_LABEL_MODE),
         included_domains=entry.options.get(
             CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
         ),

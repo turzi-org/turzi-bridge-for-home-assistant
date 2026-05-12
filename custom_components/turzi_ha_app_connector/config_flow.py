@@ -22,15 +22,20 @@ from .const import (
     CONF_ADDITIONAL_ENTITIES,
     CONF_BROKER,
     CONF_EXCLUDED_ENTITIES,
+    CONF_EXPOSE_LABEL,
     CONF_HOUSE_ID,
     CONF_INCLUDED_DOMAINS,
+    CONF_LABEL_MODE,
     CONF_PASSWORD,
     CONF_PORT,
     CONF_USE_TLS,
     CONF_USERNAME,
+    DEFAULT_EXPOSE_LABEL,
     DEFAULT_INCLUDED_DOMAINS,
+    DEFAULT_LABEL_MODE,
     DEFAULT_PORT,
     DOMAIN,
+    LabelMode,
     SELECTABLE_DOMAINS,
 )
 
@@ -131,6 +136,8 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     title=title,
                     data=user_input,
                     options={
+                        CONF_EXPOSE_LABEL: DEFAULT_EXPOSE_LABEL,
+                        CONF_LABEL_MODE: DEFAULT_LABEL_MODE,
                         CONF_INCLUDED_DOMAINS: DEFAULT_INCLUDED_DOMAINS,
                         CONF_ADDITIONAL_ENTITIES: [],
                         CONF_EXCLUDED_ENTITIES: [],
@@ -195,30 +202,70 @@ class TurziOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize the options flow."""
         self._config_entry = config_entry
+        self._expose_label: str = ""
+        self._label_mode: str = DEFAULT_LABEL_MODE
+        self._included_domains: list[str] = []
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 1: Select domains to include."""
+        """Step 1: Label and domain selection."""
         if user_input is not None:
-            # Store domains selection and proceed to entity fine-tuning
+            self._expose_label = user_input.get(CONF_EXPOSE_LABEL, "").strip().lower()
+            self._label_mode = user_input.get(CONF_LABEL_MODE, DEFAULT_LABEL_MODE)
             self._included_domains = user_input.get(CONF_INCLUDED_DOMAINS, [])
             return await self.async_step_entities()
 
-        # Build domain options list
         domain_options = [
             selector.SelectOptionDict(value=domain, label=domain)
             for domain in SELECTABLE_DOMAINS
         ]
-
+        current_label = self._config_entry.options.get(
+            CONF_EXPOSE_LABEL, DEFAULT_EXPOSE_LABEL
+        )
+        current_mode = self._config_entry.options.get(
+            CONF_LABEL_MODE, DEFAULT_LABEL_MODE
+        )
         current_domains = self._config_entry.options.get(
             CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
         )
+
+        mode_options = [
+            selector.SelectOptionDict(
+                value=LabelMode.SEED,
+                label="Seed (one-time): label matching entities now, then manage manually",
+            ),
+            selector.SelectOptionDict(
+                value=LabelMode.AUTOMATIC,
+                label="Automatic: labels kept in sync with domain rules at all times",
+            ),
+            selector.SelectOptionDict(
+                value=LabelMode.MIXED,
+                label="Mixed: automatic domain sync + manual additions protected",
+            ),
+        ]
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
+                    vol.Required(
+                        CONF_LABEL_MODE,
+                        default=current_mode,
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=mode_options,
+                            mode=selector.SelectSelectorMode.LIST,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_EXPOSE_LABEL,
+                        default=current_label,
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.TEXT,
+                        )
+                    ),
                     vol.Optional(
                         CONF_INCLUDED_DOMAINS,
                         default=current_domains,
@@ -240,6 +287,8 @@ class TurziOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(
                 data={
+                    CONF_EXPOSE_LABEL: self._expose_label,
+                    CONF_LABEL_MODE: self._label_mode,
                     CONF_INCLUDED_DOMAINS: self._included_domains,
                     CONF_ADDITIONAL_ENTITIES: user_input.get(
                         CONF_ADDITIONAL_ENTITIES, []

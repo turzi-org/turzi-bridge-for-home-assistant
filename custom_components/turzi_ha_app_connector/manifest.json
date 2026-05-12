@@ -1,0 +1,15 @@
+{
+  "domain": "turzi_ha_app_connector",
+  "name": "Turzi HA App Connector",
+  "codeowners": ["@sburgues"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/turzi-org/turzi_ha_app_connector",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/turzi-org/turzi_ha_app_connector/issues",
+  "requirements": ["aiomqtt>=2.0.0"],
+  "homeassistant": "2024.4.0",
+  "version": "1.0.0"
+}
+
