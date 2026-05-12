@@ -84,65 +84,79 @@ To update broker settings after initial setup, go to **Settings → Devices & Se
 
 ---
 
-## Entity Filtering
+## Entity Management Panel
 
-After setup, you control which entities are exposed to the Turzi app via the **Options** flow (click **Configure** on the integration entry). The options flow has two steps.
+After setup, a **Turzi** entry appears in the HA sidebar. This is the primary UI for all entity and label configuration — there is no options flow for entity settings.
 
-### Step 1 — Label Mode, Expose Label & Domains
+The panel requires admin access and has two tabs.
 
-#### Label Management Mode
+---
 
-Choose how the integration manages HA labels on exposed entities. The **label is always the runtime source of truth** — the mode only controls how labels are applied and maintained.
+### Entities tab
 
-| Mode | Description | New entities | Rules change |
-|---|---|---|---|
-| **Seed** *(default)* | Labels applied once when you save options. After that, manage manually. | ❌ Manual | Re-seeds (add-only) |
-| **Automatic** | Integration keeps labels fully in sync with domain rules at all times. | ✅ Auto-labeled | ✅ Labels added & removed |
-| **Mixed** | Same as Automatic, but labels you apply manually are never auto-removed. | ✅ Auto-labeled (domain matches) | ✅ Removes auto-labeled only |
+A searchable, filterable list of every entity in your HA instance.
 
-#### Expose Label
+| Control | What it does |
+|---|---|
+| **Search bar** | Filter by entity name or entity ID |
+| **Domain chips** | Narrow the list to a single domain |
+| **Toggle switch** | Add or remove the expose label from that entity |
 
-The HA label name applied to exposed entities (e.g. `turzi`). Must be **lowercase**.
+**Entity badges:**
 
-- Leave empty to disable label management entirely (entities are still filtered by domain rules at runtime via the `additional_entities` safety-net).
-- The integration creates the label in HA's entity registry automatically — you do not need to create it manually.
+| Badge | Meaning |
+|---|---|
+| `auto` | Labeled automatically by the integration (domain rule match) |
+| `manual` | Label was added manually by you |
+| `additional` | Entity is in the additional entities list |
 
-#### Included Domains
+Toggling a switch takes effect immediately — the entity's MQTT state is published or cleared in real time without any restart.
 
-All entities belonging to a selected domain are labeled and exposed. The domain list is used to *seed* or *sync* labels based on the chosen mode.
+---
 
-**Default domains:** `light`, `switch`, `climate`, `cover`, `fan`, `alarm_control_panel`, `lock`, `group`
-
-**All available domains:**  
-`alarm_control_panel`, `automation`, `binary_sensor`, `button`, `camera`, `climate`, `cover`, `device_tracker`, `fan`, `group`, `humidifier`, `input_boolean`, `input_button`, `input_number`, `input_select`, `light`, `lock`, `media_player`, `person`, `remote`, `scene`, `script`, `sensor`, `siren`, `switch`, `vacuum`, `valve`, `water_heater`, `weather`
-
-### Step 2 — Fine-tune Entities
+### Settings tab
 
 | Field | Description |
 |---|---|
-| **Additional entities** | Always exposed, regardless of domain. Acts as an escape hatch — useful in Seed mode when a new entity hasn't been manually labeled yet. |
-| **Excluded entities** | Blocked from domain-based labeling. In Automatic/Mixed modes, the label is actively removed if present. |
+| **Expose label** | The HA label applied to exposed entities (lowercase, e.g. `turzi`). Leave empty to disable label management. |
+| **Label management mode** | How the integration manages labels (see below). |
+| **Included domains** | Entities from these domains are labeled when rules run. |
 
-> **Note:** Entities in the excluded list that you have manually labeled will still be exposed in **Mixed** mode (manual labels are protected). Use **Automatic** mode if you want excluded entities to lose their label unconditionally.
+#### Label management modes
+
+| Mode | What happens on save | New entities | Domain rules change |
+|---|---|---|---|
+| **Seed** *(default)* | Labels applied once to all matching entities. Future additions are manual. | ❌ Manual | Re-seeds (add-only) |
+| **Automatic** | Labels fully synced with domain rules at all times. | ✅ Auto-labeled | ✅ Labels added & removed |
+| **Mixed** | Same as Automatic, but labels you applied manually are never auto-removed. | ✅ Auto-labeled (domain matches) | ✅ Removes auto-labeled only |
+
+> **Default included domains:** `light`, `switch`, `climate`, `cover`, `fan`, `alarm_control_panel`, `lock`, `group`
+
+---
 
 ### How exposure is determined at runtime
 
 ```
-1. Entity has the expose label         → exposed  (always wins)
-2. Entity is in additional_entities    → exposed  (safety-net)
-3. Otherwise                           → not exposed
+1. Entity has the expose label      → exposed  (always wins)
+2. Entity is in additional_entities → exposed  (safety-net)
+3. Otherwise                        → not exposed
 ```
 
-Domain rules are not evaluated at runtime — they only control which entities receive the label.
+Domain rules are only used to decide which entities receive the label — they are not evaluated at runtime.
+
+---
 
 ### Live sync
 
 Changes take effect immediately without restarting HA:
-- **Label added** to an entity in HA → its state is published to MQTT
-- **Label removed** from an entity → its retained MQTT message is cleared
+
+- **Toggle on** in panel → label added → state published to MQTT
+- **Toggle off** in panel → label removed → retained MQTT message cleared
 - **New entity registered** in HA (Automatic/Mixed only) → auto-labeled and published if it matches domain rules
+- **Settings saved** → label sweep runs, MQTT state synced across all affected entities
 
 ---
+
 
 ## MQTT Topic Structure
 

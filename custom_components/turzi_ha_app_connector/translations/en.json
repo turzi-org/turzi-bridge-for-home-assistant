@@ -51,35 +51,5 @@
       "already_configured": "This house ID is already configured.",
       "reconfigure_successful": "Broker settings updated successfully."
     }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Expose by Label & Domain",
-        "description": "Choose how the integration manages which entities are exposed to the Turzi app. Entities are always identified by the label you configure.",
-        "data": {
-          "label_mode": "Label management mode",
-          "expose_label": "Expose label",
-          "included_domains": "Included domains"
-        },
-        "data_description": {
-          "label_mode": "Seed: labels are applied once now and then managed manually.\nAutomatic: the integration keeps labels in sync with domain rules at all times — new entities are auto-labeled.\nMixed: same as automatic, but entities you manually label are never removed by the integration.",
-          "expose_label": "The HA label applied to exposed entities (lowercase). Leave empty to skip label management.",
-          "included_domains": "All entities from these domains will be labeled and exposed."
-        }
-      },
-      "entities": {
-        "title": "Fine-tune Entities",
-        "description": "Optionally add specific entities from domains not selected above, or exclude specific entities from the selected domains.",
-        "data": {
-          "additional_entities": "Additional entities to include",
-          "excluded_entities": "Entities to exclude"
-        },
-        "data_description": {
-          "additional_entities": "Add specific entities from domains not included in the previous step.",
-          "excluded_entities": "Exclude specific entities from the domains you selected."
-        }
-      }
-    }
   }
 }
