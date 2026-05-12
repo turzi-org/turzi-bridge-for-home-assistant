@@ -11,33 +11,25 @@ CONF_HOUSE_ID = "house_id"
 CONF_USE_TLS = "use_tls"
 
 # Options entry keys (stored in entry.options)
-CONF_EXPOSE_LABEL = "expose_label"
-CONF_LABEL_MODE = "label_mode"
 CONF_INCLUDED_DOMAINS = "included_domains"
-CONF_ADDITIONAL_ENTITIES = "additional_entities"
-CONF_EXCLUDED_ENTITIES = "excluded_entities"
-
-# Internal tracking (stored in bridge instance, not persisted)
-CONF_AUTO_LABELED_ENTITIES = "auto_labeled_entities"
-
-
-class LabelMode:
-    """Label management mode constants."""
-
-    SEED = "seed"
-    AUTOMATIC = "automatic"
-    MIXED = "mixed"
-
-
-# Default label (empty = disabled)
-DEFAULT_EXPOSE_LABEL = ""
-
-# Default label management mode
-DEFAULT_LABEL_MODE = LabelMode.SEED
-
+CONF_EXPOSED_ENTITIES = "exposed_entities"
+CONF_AUTO_ADD_NEW = "auto_add_new"
 
 # Default port
 DEFAULT_PORT = 1883
+
+# Defaults
+DEFAULT_AUTO_ADD_NEW = True
+DEFAULT_INCLUDED_DOMAINS = [
+    "light",
+    "switch",
+    "climate",
+    "cover",
+    "fan",
+    "alarm_control_panel",
+    "lock",
+    "group",
+]
 
 # Panel constants
 PANEL_URL = "/api/turzi_ha_app_connector/panel"
@@ -52,20 +44,7 @@ INTEGRATION_FOLDER = "turzi_ha_app_connector"
 # Dispatcher signal for live panel updates
 SIGNAL_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 
-
-# Default domains to include on first setup
-DEFAULT_INCLUDED_DOMAINS = [
-    "light",
-    "switch",
-    "climate",
-    "cover",
-    "fan",
-    "alarm_control_panel",
-    "lock",
-    "group",
-]
-
-# All selectable domains in the Options Flow
+# All selectable domains in the panel Settings tab
 SELECTABLE_DOMAINS = [
     "alarm_control_panel",
     "automation",

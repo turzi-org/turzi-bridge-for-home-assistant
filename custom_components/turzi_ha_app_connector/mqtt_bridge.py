@@ -33,22 +33,20 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
     ALARM_MODE_MAP,
-    CONF_ADDITIONAL_ENTITIES,
+    CONF_AUTO_ADD_NEW,
     CONF_BROKER,
-    CONF_EXCLUDED_ENTITIES,
-    CONF_EXPOSE_LABEL,
+    CONF_EXPOSED_ENTITIES,
     CONF_HOUSE_ID,
     CONF_INCLUDED_DOMAINS,
-    CONF_LABEL_MODE,
     CONF_PASSWORD,
     CONF_PORT,
     CONF_USE_TLS,
     CONF_USERNAME,
-    DEFAULT_EXPOSE_LABEL,
+    DEFAULT_AUTO_ADD_NEW,
     DEFAULT_INCLUDED_DOMAINS,
-    DEFAULT_LABEL_MODE,
+    DOMAIN,
     DOMAIN_ATTRIBUTES,
-    LabelMode,
+    SIGNAL_CONFIG_UPDATED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,11 +69,10 @@ class TurziMqttBridge:
         password: str | None,
         house_id: str,
         use_tls: bool,
-        expose_label: str,
-        label_mode: str,
+        entry_id: str,
+        exposed_entities: list[str],
         included_domains: list[str],
-        additional_entities: list[str],
-        excluded_entities: list[str],
+        auto_add_new: bool,
     ) -> None:
         """Initialize the MQTT bridge."""
         self.hass = hass
@@ -85,11 +82,10 @@ class TurziMqttBridge:
         self._password = password or None
         self._house_id = house_id
         self._use_tls = use_tls
-        self._expose_label = expose_label
-        self._label_mode = label_mode
-        self._included_domains = set(included_domains)
-        self._additional_entities = set(additional_entities)
-        self._excluded_entities = set(excluded_entities)
+        self._entry_id = entry_id
+        self._exposed_entities: set[str] = set(exposed_entities)
+        self._included_domains: set[str] = set(included_domains)
+        self._auto_add_new: bool = auto_add_new
 
         # Internal state
         self._client: aiomqtt.Client | None = None
@@ -102,12 +98,6 @@ class TurziMqttBridge:
         # Track entity_ids that have been published to MQTT (for cleanup)
         self._published_entities: set[str] = set()
 
-        # Guard against double-publish when auto-labeling fires registry events
-        self._applying_labels: bool = False
-
-        # Entities we auto-labeled (used in mixed mode to protect manual additions)
-        self._auto_labeled_entities: set[str] = set()
-
     @classmethod
     def from_config_entry(cls, hass: HomeAssistant, entry) -> TurziMqttBridge:
         """Create a TurziMqttBridge from a config entry."""
@@ -119,141 +109,38 @@ class TurziMqttBridge:
             password=entry.data.get(CONF_PASSWORD),
             house_id=entry.data[CONF_HOUSE_ID],
             use_tls=entry.data.get(CONF_USE_TLS, False),
-            expose_label=entry.options.get(CONF_EXPOSE_LABEL, DEFAULT_EXPOSE_LABEL),
-            label_mode=entry.options.get(CONF_LABEL_MODE, DEFAULT_LABEL_MODE),
-            included_domains=entry.options.get(
-                CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
-            ),
-            additional_entities=entry.options.get(CONF_ADDITIONAL_ENTITIES, []),
-            excluded_entities=entry.options.get(CONF_EXCLUDED_ENTITIES, []),
+            entry_id=entry.entry_id,
+            exposed_entities=entry.options.get(CONF_EXPOSED_ENTITIES, []),
+            included_domains=entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS),
+            auto_add_new=entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
         )
 
     # -------------------------------------------------------------------------
-    # Entity filter (label + domain + entity lists)
+    # Entity exposure (simple set membership)
     # -------------------------------------------------------------------------
-
-    def _matches_filter(self, entity_id: str) -> bool:
-        """Check domain/additional/excluded filters only (no label)."""
-        if entity_id in self._additional_entities:
-            return True
-        domain = entity_id.split(".")[0]
-        if domain in self._included_domains and entity_id not in self._excluded_entities:
-            return True
-        return False
 
     def should_expose(self, entity_id: str) -> bool:
-        """Return True if entity should be exposed to the Turzi app.
+        """Return True if entity_id is in the exposed set."""
+        return entity_id in self._exposed_entities
 
-        At runtime the label is always the source of truth.
-        additional_entities acts as a safety-net escape hatch.
-        """
-        # Primary: label check
-        if self._expose_label:
-            registry = er.async_get(self.hass)
-            entry = registry.async_get(entity_id)
-            if entry and not entry.disabled_by and self._expose_label in entry.labels:
-                return True
-        # Safety-net: explicit additional entities (useful in seed mode
-        # before a label has been manually applied to a new entity)
-        return entity_id in self._additional_entities
-
-    def _apply_label_to_filter_matches(self) -> None:
-        """Auto-apply the expose label to all entities matching current filters.
-
-        Tracks which entities we labeled in _auto_labeled_entities.
-        Add-only: never removes manually-applied labels.
-        """
-        if not self._expose_label:
-            return
-        registry = er.async_get(self.hass)
-        count = 0
-        self._applying_labels = True
-        try:
-            for entry in registry.entities.values():
-                if entry.disabled_by:
-                    continue
-                if self._matches_filter(entry.entity_id):
-                    self._auto_labeled_entities.add(entry.entity_id)
-                    if self._expose_label not in entry.labels:
-                        registry.async_update_entity(
-                            entry.entity_id,
-                            labels=entry.labels | {self._expose_label},
-                        )
-                        count += 1
-        finally:
-            self._applying_labels = False
-        if count:
-            _LOGGER.info(
-                "Auto-labeled %d entities with '%s' for house '%s'",
-                count,
-                self._expose_label,
-                self._house_id,
-            )
-
-    def _remove_stale_labels(self) -> None:
-        """Remove our label from entities that no longer match the current filters.
-
-        - automatic mode: operates on all auto-labeled entities
-        - mixed mode: same — only removes from entities we ourselves labeled,
-          so manually-labeled entities outside the domain filter are protected
-        """
-        if not self._expose_label:
-            return
-        registry = er.async_get(self.hass)
-        to_remove = {
-            entity_id
-            for entity_id in self._auto_labeled_entities
-            if not self._matches_filter(entity_id)
-        }
-        if not to_remove:
-            return
-        self._applying_labels = True
-        try:
-            for entity_id in to_remove:
-                entry = registry.async_get(entity_id)
-                if entry and self._expose_label in entry.labels:
-                    registry.async_update_entity(
-                        entity_id,
-                        labels=entry.labels - {self._expose_label},
-                    )
-                self._auto_labeled_entities.discard(entity_id)
-        finally:
-            self._applying_labels = False
-        _LOGGER.info(
-            "Removed stale label '%s' from %d entities for house '%s'",
-            self._expose_label,
-            len(to_remove),
-            self._house_id,
-        )
-
-    def update_entity_filter(
+    def update_config(
         self,
-        expose_label: str,
-        label_mode: str,
+        exposed_entities: list[str],
         included_domains: list[str],
-        additional_entities: list[str],
-        excluded_entities: list[str],
+        auto_add_new: bool,
     ) -> None:
-        """Update filters and sync labels + MQTT state according to mode."""
+        """Apply updated config and sync MQTT state accordingly."""
         old_exposed = set(self._published_entities)
 
-        self._expose_label = expose_label
-        self._label_mode = label_mode
+        self._exposed_entities = set(exposed_entities)
         self._included_domains = set(included_domains)
-        self._additional_entities = set(additional_entities)
-        self._excluded_entities = set(excluded_entities)
+        self._auto_add_new = auto_add_new
 
-        if label_mode in (LabelMode.AUTOMATIC, LabelMode.MIXED):
-            # Remove labels from entities that no longer match the rules
-            self._remove_stale_labels()
-
-        # Apply label to all current filter matches (all modes except no-label)
-        self._apply_label_to_filter_matches()
-
-        new_exposed: set[str] = set()
-        for state in self.hass.states.async_all():
-            if self.should_expose(state.entity_id):
-                new_exposed.add(state.entity_id)
+        new_exposed: set[str] = {
+            s.entity_id
+            for s in self.hass.states.async_all()
+            if self.should_expose(s.entity_id)
+        }
 
         to_add = new_exposed - old_exposed
         to_remove = old_exposed - new_exposed
@@ -271,6 +158,17 @@ class TurziMqttBridge:
                     self._remove_entity_from_mqtt(self._client, entity_id),
                     f"turzi_remove_{entity_id}",
                 )
+
+    async def _persist_exposed_entities(self) -> None:
+        """Persist the current exposed_entities set to config entry options."""
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+        entry = self.hass.config_entries.async_get_entry(self._entry_id)
+        if entry is None:
+            return
+        new_options = {**entry.options, CONF_EXPOSED_ENTITIES: list(self._exposed_entities)}
+        self.hass.config_entries.async_update_entry(entry, options=new_options)
+        async_dispatcher_send(self.hass, SIGNAL_CONFIG_UPDATED)
 
     # -------------------------------------------------------------------------
     # Attribute extraction
@@ -305,7 +203,6 @@ class TurziMqttBridge:
         self._setup_state_listener()
         self._setup_reload_listener()
         self._setup_registry_listener()
-        self._apply_label_to_filter_matches()
         self._connection_task = self.hass.async_create_task(
             self._connection_loop(), "turzi_mqtt_connection_loop"
         )
@@ -343,7 +240,7 @@ class TurziMqttBridge:
     # -------------------------------------------------------------------------
 
     def _setup_registry_listener(self) -> None:
-        """Watch entity registry changes to sync label-based exposure live."""
+        """Watch entity registry for auto-add (new entities) and removal cleanup."""
 
         @callback
         def _on_registry_updated(event: Event) -> None:
@@ -352,61 +249,31 @@ class TurziMqttBridge:
             if not entity_id:
                 return
 
-            if action == "update":
-                changes = event.data.get("changes", {})
-                if "labels" not in changes:
-                    return  # Not a label change
-                # Ignore events we fired ourselves during auto-labeling
-                if self._applying_labels:
+            if action == "create" and self._auto_add_new:
+                # Auto-add new entity if its domain is in included_domains
+                domain = entity_id.split(".")[0]
+                if domain not in self._included_domains:
                     return
-                if not self._expose_label:
+                reg = er.async_get(self.hass)
+                reg_entry = reg.async_get(entity_id)
+                if reg_entry is None or reg_entry.disabled_by:
                     return
-                # changes["labels"] is the OLD label set
-                old_labels: set[str] = changes["labels"]
-                now_exposed = self.should_expose(entity_id)
-                was_exposed = self._expose_label in old_labels
-
-                if now_exposed and not was_exposed and self._client is not None:
-                    state = self.hass.states.get(entity_id)
-                    if state:
-                        _LOGGER.debug("Label added to %s — publishing", entity_id)
-                        self.hass.async_create_task(
-                            self._publish_state(self._client, state),
-                            f"turzi_publish_new_{entity_id}",
-                        )
-                elif was_exposed and not now_exposed and self._client is not None:
-                    _LOGGER.debug("Label removed from %s — clearing MQTT", entity_id)
+                if entity_id in self._exposed_entities:
+                    return
+                _LOGGER.debug("Auto-adding new entity %s (domain: %s)", entity_id, domain)
+                self._exposed_entities.add(entity_id)
+                # Publish immediately
+                state = self.hass.states.get(entity_id)
+                if state and self._client is not None:
                     self.hass.async_create_task(
-                        self._remove_entity_from_mqtt(self._client, entity_id),
-                        f"turzi_remove_{entity_id}",
+                        self._publish_state(self._client, state),
+                        f"turzi_publish_new_{entity_id}",
                     )
-
-            elif action == "create":
-                # Auto-label new entities in automatic/mixed modes
-                if self._label_mode not in (LabelMode.AUTOMATIC, LabelMode.MIXED):
-                    return
-                if not self._expose_label:
-                    return
-                if not self._matches_filter(entity_id):
-                    return
-                registry = er.async_get(self.hass)
-                entry = registry.async_get(entity_id)
-                if entry is None or entry.disabled_by:
-                    return
-                _LOGGER.debug(
-                    "New entity %s matches filter — auto-labeling (%s mode)",
-                    entity_id,
-                    self._label_mode,
+                # Persist asynchronously
+                self.hass.async_create_task(
+                    self._persist_exposed_entities(),
+                    "turzi_persist_exposed_entities",
                 )
-                self._applying_labels = True
-                try:
-                    registry.async_update_entity(
-                        entity_id,
-                        labels=entry.labels | {self._expose_label},
-                    )
-                    self._auto_labeled_entities.add(entity_id)
-                finally:
-                    self._applying_labels = False
 
             elif action == "remove":
                 if entity_id in self._published_entities and self._client is not None:
@@ -414,10 +281,12 @@ class TurziMqttBridge:
                         self._remove_entity_from_mqtt(self._client, entity_id),
                         f"turzi_remove_{entity_id}",
                     )
+                self._exposed_entities.discard(entity_id)
 
         self._unsub_registry_listener = self.hass.bus.async_listen(
             er.EVENT_ENTITY_REGISTRY_UPDATED, _on_registry_updated
         )
+
 
     # -------------------------------------------------------------------------
     # MQTT connection loop with auto-reconnect

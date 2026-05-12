@@ -12,20 +12,17 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
 from .const import (
-    CONF_ADDITIONAL_ENTITIES,
+    CONF_AUTO_ADD_NEW,
     CONF_BROKER,
-    CONF_EXCLUDED_ENTITIES,
-    CONF_EXPOSE_LABEL,
+    CONF_EXPOSED_ENTITIES,
     CONF_HOUSE_ID,
     CONF_INCLUDED_DOMAINS,
-    CONF_LABEL_MODE,
     CONF_PASSWORD,
     CONF_PORT,
     CONF_USE_TLS,
     CONF_USERNAME,
-    DEFAULT_EXPOSE_LABEL,
+    DEFAULT_AUTO_ADD_NEW,
     DEFAULT_INCLUDED_DOMAINS,
-    DEFAULT_LABEL_MODE,
     DEFAULT_PORT,
     DOMAIN,
 )
@@ -108,15 +105,15 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["base"] = "cannot_connect"
 
             if not errors:
+                # Seed exposed_entities from DEFAULT_INCLUDED_DOMAINS at setup time.
+                # The panel will show these pre-toggled; users adjust from there.
                 return self.async_create_entry(
                     title=f"Turzi - {user_input[CONF_HOUSE_ID]}",
                     data=user_input,
                     options={
-                        CONF_EXPOSE_LABEL: DEFAULT_EXPOSE_LABEL,
-                        CONF_LABEL_MODE: DEFAULT_LABEL_MODE,
                         CONF_INCLUDED_DOMAINS: DEFAULT_INCLUDED_DOMAINS,
-                        CONF_ADDITIONAL_ENTITIES: [],
-                        CONF_EXCLUDED_ENTITIES: [],
+                        CONF_EXPOSED_ENTITIES: [],  # Seeded at bridge start from HA registry
+                        CONF_AUTO_ADD_NEW: DEFAULT_AUTO_ADD_NEW,
                     },
                 )
 

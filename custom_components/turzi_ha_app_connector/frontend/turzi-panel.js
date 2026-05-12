@@ -1,172 +1,182 @@
 /**
- * Turzi Panel — Home Assistant custom sidebar panel
- * Manages entity exposure via HA labels.
+ * Turzi Panel — Home Assistant sidebar panel
+ * Entity exposure managed via a simple on/off set (no labels).
  */
-
-const LABEL_MODE_OPTIONS = [
-  { value: "seed", label: "Seed (one-time)", description: "Label matching entities now, then manage manually" },
-  { value: "automatic", label: "Automatic", description: "Labels kept in sync with domain rules at all times" },
-  { value: "mixed", label: "Mixed", description: "Automatic sync + manually-added labels protected" },
-];
 
 const STYLES = `
   :host {
-    display: block;
-    height: 100%;
+    display: block; height: 100%;
     background: var(--primary-background-color);
     font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
-    --turzi-accent: var(--primary-color, #03a9f4);
-    --turzi-card-bg: var(--card-background-color, #fff);
-    --turzi-divider: var(--divider-color, rgba(0,0,0,.12));
-    --turzi-text: var(--primary-text-color, #212121);
-    --turzi-secondary: var(--secondary-text-color, #727272);
+    --accent: var(--primary-color, #03a9f4);
+    --card: var(--card-background-color, #fff);
+    --divider: var(--divider-color, rgba(0,0,0,.12));
+    --text: var(--primary-text-color, #212121);
+    --sub: var(--secondary-text-color, #727272);
   }
+  * { box-sizing: border-box; }
   .layout { display: flex; flex-direction: column; height: 100%; }
+
+  /* Header */
   .header {
     background: var(--app-header-background-color, var(--primary-color));
     color: var(--app-header-text-color, #fff);
-    padding: 0 16px;
-    display: flex; align-items: center; gap: 12px;
-    height: 64px; flex-shrink: 0;
-    box-shadow: 0 2px 4px rgba(0,0,0,.2);
+    padding: 0 16px; display: flex; align-items: center; gap: 12px;
+    height: 64px; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,.25);
   }
-  .header img { width: 32px; height: 32px; border-radius: 6px; }
-  .header h1 { margin: 0; font-size: 20px; font-weight: 400; flex: 1; }
+  .header h1 { margin: 0; font-size: 20px; font-weight: 400; flex: 1; letter-spacing: .3px; }
+
+  /* Tabs */
   .tabs {
     display: flex;
     background: var(--app-header-background-color, var(--primary-color));
-    padding: 0 16px;
-    flex-shrink: 0;
+    padding: 0 16px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,.1);
   }
   .tab {
-    padding: 12px 20px; cursor: pointer; font-size: 14px; font-weight: 500;
-    color: rgba(255,255,255,.7); border-bottom: 3px solid transparent;
-    transition: all .2s; letter-spacing: .5px; text-transform: uppercase;
+    padding: 12px 20px; cursor: pointer; font-size: 13px; font-weight: 500;
+    color: rgba(255,255,255,.65); border-bottom: 3px solid transparent;
+    transition: all .2s; letter-spacing: .5px; text-transform: uppercase; user-select: none;
   }
   .tab.active { color: #fff; border-bottom-color: #fff; }
-  .content { flex: 1; overflow-y: auto; padding: 16px; box-sizing: border-box; }
 
-  /* --- Entity list --- */
-  .search-bar {
-    display: flex; gap: 8px; margin-bottom: 12px; align-items: center;
+  /* Content area */
+  .content { flex: 1; overflow-y: auto; padding: 16px; }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
   }
-  .search-bar input {
-    flex: 1; padding: 10px 14px; border-radius: 8px;
-    border: 1px solid var(--turzi-divider);
-    background: var(--turzi-card-bg);
-    color: var(--turzi-text);
-    font-size: 14px; outline: none;
+  .search-wrap { position: relative; flex: 1; min-width: 160px; }
+  .search-wrap ha-icon {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    --mdc-icon-size: 18px; color: var(--sub);
   }
-  .search-bar input:focus { border-color: var(--turzi-accent); }
+  .search-input {
+    width: 100%; padding: 9px 12px 9px 36px;
+    border-radius: 8px; border: 1px solid var(--divider);
+    background: var(--card); color: var(--text); font-size: 14px; outline: none;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 500; transition: opacity .15s; white-space: nowrap;
+  }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { opacity: .88; }
+  .btn-outline { background: transparent; border: 1.5px solid var(--divider); color: var(--text); }
+  .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: transparent; border: 1.5px solid #ef5350; color: #ef5350; }
+  .btn-danger:hover:not(:disabled) { background: rgba(239,83,80,.08); }
+
+  /* Domain chips */
   .domain-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
   .chip {
     padding: 4px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;
-    border: 1px solid var(--turzi-divider);
-    background: var(--turzi-card-bg); color: var(--turzi-secondary);
-    transition: all .15s; user-select: none;
+    border: 1.5px solid var(--divider); background: var(--card);
+    color: var(--sub); transition: all .15s; user-select: none;
   }
-  .chip.active { background: var(--turzi-accent); color: #fff; border-color: var(--turzi-accent); }
-  .entity-list { display: flex; flex-direction: column; gap: 2px; }
-  .entity-row {
+  .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* Stats bar */
+  .stats {
     display: flex; align-items: center; gap: 12px;
-    padding: 10px 14px; border-radius: 8px;
-    background: var(--turzi-card-bg);
-    transition: background .15s;
+    margin-bottom: 10px; font-size: 13px; color: var(--sub);
   }
-  .entity-row:hover { background: var(--secondary-background-color, #f5f5f5); }
-  .entity-icon { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .entity-icon ha-icon { --mdc-icon-size: 22px; color: var(--turzi-secondary); }
-  .entity-icon ha-icon.exposed { color: var(--turzi-accent); }
+  .stats strong { color: var(--accent); }
+  .stats .sel-label { margin-left: auto; font-weight: 500; color: var(--accent); }
+
+  /* Batch action bar */
+  .batch-bar {
+    display: none; align-items: center; gap: 8px; padding: 10px 14px;
+    background: var(--card); border-radius: 10px; margin-bottom: 10px;
+    border: 1.5px solid var(--accent); flex-wrap: wrap;
+  }
+  .batch-bar.visible { display: flex; }
+  .batch-bar span { font-size: 13px; color: var(--text); font-weight: 500; flex: 1; }
+
+  /* Entity list */
+  .entity-list { display: flex; flex-direction: column; gap: 1px; }
+  .entity-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    background: var(--card); transition: background .12s; cursor: pointer;
+  }
+  .entity-row:hover { background: var(--secondary-background-color, #f0f0f0); }
+  .entity-row.selected { background: rgba(3,169,244,.08); }
+  .row-checkbox { flex-shrink: 0; width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .entity-icon { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .entity-icon ha-icon { --mdc-icon-size: 20px; color: var(--sub); }
+  .entity-icon ha-icon.on { color: var(--accent); }
   .entity-info { flex: 1; min-width: 0; }
-  .entity-name { font-size: 14px; color: var(--turzi-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .entity-id { font-size: 11px; color: var(--turzi-secondary); font-family: monospace; }
-  .entity-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
-  .badge {
-    font-size: 10px; padding: 1px 6px; border-radius: 10px;
-    background: var(--turzi-divider); color: var(--turzi-secondary);
+  .entity-name { font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .entity-id { font-size: 11px; color: var(--sub); font-family: monospace; }
+  .entity-state { font-size: 12px; color: var(--sub); flex-shrink: 0; min-width: 50px; text-align: right; }
+  .domain-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    background: var(--accent); opacity: 0;
   }
-  .badge.auto { background: rgba(3,169,244,.15); color: var(--turzi-accent); }
-  .badge.manual { background: rgba(76,175,80,.15); color: #4caf50; }
-  .badge.additional { background: rgba(156,39,176,.15); color: #9c27b0; }
-  .entity-state { font-size: 12px; color: var(--turzi-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
+  .domain-dot.in-domain { opacity: 1; }
   ha-switch { flex-shrink: 0; }
-  .section-header {
-    font-size: 11px; font-weight: 600; color: var(--turzi-secondary);
-    letter-spacing: 1px; text-transform: uppercase;
-    padding: 16px 0 6px 4px;
-  }
-  .count-badge {
-    display: inline-block; margin-left: 6px; padding: 1px 7px;
-    border-radius: 10px; background: var(--turzi-accent); color: #fff;
-    font-size: 11px; font-weight: 600;
+
+  /* Select-all row */
+  .select-all-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; font-size: 13px; color: var(--sub);
+    border-bottom: 1px solid var(--divider); margin-bottom: 4px;
   }
 
-  /* --- Settings --- */
-  .settings-card {
-    background: var(--turzi-card-bg); border-radius: 12px;
-    padding: 20px; margin-bottom: 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08);
-  }
-  .settings-card h3 { margin: 0 0 4px; font-size: 16px; font-weight: 500; color: var(--turzi-text); }
-  .settings-card p { margin: 0 0 16px; font-size: 13px; color: var(--turzi-secondary); }
-  .field-label { font-size: 13px; font-weight: 500; color: var(--turzi-text); margin-bottom: 6px; }
-  .field-hint { font-size: 12px; color: var(--turzi-secondary); margin-top: 4px; margin-bottom: 16px; }
-  .text-input {
-    width: 100%; padding: 10px 12px; border-radius: 8px; box-sizing: border-box;
-    border: 1px solid var(--turzi-divider);
-    background: var(--primary-background-color);
-    color: var(--turzi-text); font-size: 14px; outline: none;
-  }
-  .text-input:focus { border-color: var(--turzi-accent); }
-  .mode-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-  .mode-option {
-    display: flex; align-items: flex-start; gap: 12px; padding: 12px;
-    border-radius: 8px; border: 2px solid var(--turzi-divider);
-    cursor: pointer; transition: all .15s;
-  }
-  .mode-option.selected { border-color: var(--turzi-accent); background: rgba(3,169,244,.05); }
-  .mode-option input[type=radio] { margin-top: 2px; accent-color: var(--turzi-accent); }
-  .mode-option-text .title { font-size: 14px; font-weight: 500; color: var(--turzi-text); }
-  .mode-option-text .desc { font-size: 12px; color: var(--turzi-secondary); margin-top: 2px; }
-  .domain-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-  .domain-toggle {
-    display: flex; align-items: center; gap: 6px; padding: 6px 12px;
-    border-radius: 20px; cursor: pointer; font-size: 13px;
-    border: 1.5px solid var(--turzi-divider);
-    background: var(--primary-background-color);
-    color: var(--turzi-secondary); transition: all .15s; user-select: none;
-  }
-  .domain-toggle.selected { background: var(--turzi-accent); color: #fff; border-color: var(--turzi-accent); }
-  .domain-toggle input { display: none; }
-  .save-btn {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 10px 24px; border-radius: 8px; border: none; cursor: pointer;
-    background: var(--turzi-accent); color: #fff;
-    font-size: 14px; font-weight: 500; letter-spacing: .3px;
-    transition: opacity .15s; margin-top: 4px;
-  }
-  .save-btn:disabled { opacity: .5; cursor: default; }
-  .save-btn:hover:not(:disabled) { opacity: .9; }
-  .spinner {
-    width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4);
-    border-top-color: #fff; border-radius: 50%;
-    animation: spin .8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Empty state */
+  .empty { text-align: center; padding: 48px 16px; color: var(--sub); font-size: 14px; }
+  .empty ha-icon { --mdc-icon-size: 48px; display: block; margin-bottom: 12px; opacity: .3; }
 
   /* Loading */
   .loading {
     display: flex; align-items: center; justify-content: center;
-    height: 200px; flex-direction: column; gap: 16px;
-    color: var(--turzi-secondary); font-size: 14px;
+    height: 200px; flex-direction: column; gap: 16px; color: var(--sub); font-size: 14px;
   }
-  .loading .big-spinner {
-    width: 40px; height: 40px; border: 3px solid var(--turzi-divider);
-    border-top-color: var(--turzi-accent); border-radius: 50%;
-    animation: spin 1s linear infinite;
+  .spinner {
+    width: 36px; height: 36px; border: 3px solid var(--divider);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite;
   }
-  .empty { text-align: center; padding: 40px; color: var(--turzi-secondary); font-size: 14px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Settings */
+  .settings-section {
+    background: var(--card); border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.07);
+  }
+  .settings-section h3 { margin: 0 0 4px; font-size: 15px; font-weight: 500; color: var(--text); }
+  .settings-section p { margin: 0 0 14px; font-size: 13px; color: var(--sub); line-height: 1.5; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
+  .toggle-label { font-size: 14px; color: var(--text); }
+  .toggle-sub { font-size: 12px; color: var(--sub); margin-top: 2px; }
+  .domain-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .domain-pill {
+    display: flex; align-items: center; gap: 5px; padding: 6px 14px;
+    border-radius: 20px; cursor: pointer; font-size: 13px;
+    border: 1.5px solid var(--divider); color: var(--sub);
+    transition: all .15s; user-select: none;
+  }
+  .domain-pill.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .save-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 22px; border-radius: 8px; border: none; cursor: pointer;
+    background: var(--accent); color: #fff; font-size: 14px; font-weight: 500;
+    letter-spacing: .3px; transition: opacity .15s; margin-top: 8px;
+  }
+  .save-btn:disabled { opacity: .5; cursor: default; }
+  .save-btn:hover:not(:disabled) { opacity: .88; }
+  .save-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
 `;
+
+const ALL_DOMAINS = [
+  "alarm_control_panel","automation","binary_sensor","button","camera","climate",
+  "cover","device_tracker","fan","group","humidifier","input_boolean","input_button",
+  "input_number","input_select","light","lock","media_player","person","remote",
+  "scene","script","sensor","siren","switch","vacuum","valve","water_heater","weather",
+];
 
 class TurziPanel extends HTMLElement {
   constructor() {
@@ -177,6 +187,7 @@ class TurziPanel extends HTMLElement {
     this._activeTab = "entities";
     this._search = "";
     this._domainFilter = null;
+    this._selected = new Set();
     this._loading = true;
     this._saving = false;
     this._unsub = null;
@@ -190,7 +201,6 @@ class TurziPanel extends HTMLElement {
     this._hass = hass;
     if (first) this._init();
   }
-
   set panel(_) {}
 
   async _init() {
@@ -209,29 +219,36 @@ class TurziPanel extends HTMLElement {
       this._entities = ents.sort((a, b) => a.entity_id.localeCompare(b.entity_id));
       if (!this._draft) {
         this._draft = {
-          expose_label: cfg.expose_label || "",
-          label_mode: cfg.label_mode || "seed",
           included_domains: [...(cfg.included_domains || [])],
+          auto_add_new: cfg.auto_add_new !== false,
         };
       }
-    } catch (e) {
-      console.error("[Turzi] fetch error", e);
-    }
+    } catch (e) { console.error("[Turzi]", e); }
     this._loading = false;
   }
 
   async _subscribeUpdates() {
     if (this._unsub) { try { this._unsub(); } catch (_) {} }
     this._unsub = await this._hass.connection.subscribeMessage(
-      async () => { await this._fetchData(); this._render(); },
+      async () => {
+        const prevSelected = new Set(this._selected);
+        this._draft = null; // let settings tab re-read from fresh config
+        await this._fetchData();
+        this._selected = new Set([...prevSelected].filter(id => this._entities.some(e => e.entity_id === id)));
+        this._render();
+      },
       { type: "turzi/subscribe" }
     );
   }
 
-  async _toggleEntity(entityId, expose) {
-    await this._hass.callApi("POST", "turzi/entities/toggle", {
-      entry_id: this._config.entry_id, entity_id: entityId, expose,
-    });
+  async _setExpose(entityIds, expose) {
+    try {
+      await this._hass.callApi("POST", "turzi/entities/update", {
+        entry_id: this._config.entry_id,
+        entity_ids: Array.isArray(entityIds) ? entityIds : [entityIds],
+        expose,
+      });
+    } catch (e) { console.error("[Turzi] entity update failed", e); }
   }
 
   async _saveSettings() {
@@ -240,14 +257,14 @@ class TurziPanel extends HTMLElement {
     this._render();
     try {
       await this._hass.callApi("POST", "turzi/config", {
-        entry_id: this._config.entry_id, ...this._draft,
+        entry_id: this._config.entry_id,
+        included_domains: this._draft.included_domains,
+        auto_add_new: this._draft.auto_add_new,
       });
-    } catch (e) { console.error("[Turzi] save error", e); }
+      this._draft = null; // will be re-seeded from fresh config on subscribe push
+    } catch (e) { console.error("[Turzi] save failed", e); }
     this._saving = false;
-  }
-
-  _domains() {
-    return [...new Set(this._entities.map(e => e.domain))].sort();
+    this._render();
   }
 
   _filtered() {
@@ -259,13 +276,14 @@ class TurziPanel extends HTMLElement {
     });
   }
 
+  _domains() {
+    return [...new Set(this._entities.map(e => e.domain))].sort();
+  }
+
   _renderShell() {
     this.shadowRoot.innerHTML = `<style>${STYLES}</style>
       <div class="layout">
-        <div class="header">
-          <div class="header-logo"></div>
-          <h1>Turzi</h1>
-        </div>
+        <div class="header"><h1>Turzi</h1></div>
         <div class="tabs">
           <div class="tab active" data-tab="entities">Entities</div>
           <div class="tab" data-tab="settings">Settings</div>
@@ -275,156 +293,182 @@ class TurziPanel extends HTMLElement {
     this.shadowRoot.querySelectorAll(".tab").forEach(t =>
       t.addEventListener("click", () => {
         this._activeTab = t.dataset.tab;
+        this._selected.clear();
         this.shadowRoot.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
         this._renderContent();
       })
     );
   }
 
-  _render() {
-    this._renderContent();
-  }
+  _render() { this._renderContent(); }
 
   _renderContent() {
-    const content = this.shadowRoot.getElementById("content");
-    if (!content) return;
+    const c = this.shadowRoot.getElementById("content");
+    if (!c) return;
     if (this._loading) {
-      content.innerHTML = `<div class="loading"><div class="big-spinner"></div><span>Loading...</span></div>`;
+      c.innerHTML = `<div class="loading"><div class="spinner"></div><span>Loading…</span></div>`;
       return;
     }
-    if (this._activeTab === "entities") this._renderEntities(content);
-    else this._renderSettings(content);
+    if (this._activeTab === "entities") this._renderEntities(c);
+    else this._renderSettings(c);
   }
 
-  _renderEntities(content) {
+  _renderEntities(c) {
     const filtered = this._filtered();
-    const exposedCount = this._entities.filter(e => e.is_exposed).length;
-    const domains = this._domains();
+    const exposed = this._entities.filter(e => e.is_exposed).length;
+    const selCount = this._selected.size;
+    const selFiltered = filtered.filter(e => this._selected.has(e.entity_id));
+    const allFilteredSelected = filtered.length > 0 && filtered.every(e => this._selected.has(e.entity_id));
 
-    const chipAll = `<div class="chip${!this._domainFilter ? " active" : ""}" data-domain="">All</div>`;
-    const chips = domains.map(d =>
+    const domainChips = this._domains().map(d =>
       `<div class="chip${this._domainFilter === d ? " active" : ""}" data-domain="${d}">${d}</div>`
     ).join("");
 
-    const rows = filtered.length === 0
-      ? `<div class="empty">No entities match your filter.</div>`
-      : filtered.map(e => {
-          const iconClass = e.is_exposed ? "exposed" : "";
-          const badges = [
-            e.is_auto_labeled ? `<span class="badge auto">auto</span>` : "",
-            !e.is_auto_labeled && e.has_label ? `<span class="badge manual">manual</span>` : "",
-            e.is_additional ? `<span class="badge additional">additional</span>` : "",
-          ].join("");
-          return `<div class="entity-row">
-            <div class="entity-icon">
-              <ha-icon class="${iconClass}" icon="${e.icon || "mdi:help-circle-outline"}"></ha-icon>
-            </div>
-            <div class="entity-info">
-              <div class="entity-name">${e.name || e.entity_id}</div>
-              <div class="entity-id">${e.entity_id}</div>
-              ${badges ? `<div class="entity-badges">${badges}</div>` : ""}
-            </div>
-            <div class="entity-state">${e.state}</div>
-            <ha-switch ${e.is_exposed ? "checked" : ""} data-entity="${e.entity_id}" data-expose="${e.is_exposed ? "false" : "true"}"></ha-switch>
-          </div>`;
-        }).join("");
+    const rows = filtered.map(e => {
+      const sel = this._selected.has(e.entity_id);
+      return `<div class="entity-row${sel ? " selected" : ""}" data-id="${e.entity_id}">
+        <input type="checkbox" class="row-checkbox" ${sel ? "checked" : ""} data-id="${e.entity_id}">
+        <div class="entity-icon">
+          <ha-icon class="${e.is_exposed ? "on" : ""}" icon="${e.icon || "mdi:help-circle-outline"}"></ha-icon>
+        </div>
+        <div class="entity-info">
+          <div class="entity-name">${e.name || e.entity_id}</div>
+          <div class="entity-id">${e.entity_id}</div>
+        </div>
+        <div class="domain-dot${e.in_domain ? " in-domain" : ""}" title="${e.in_domain ? "In included domain" : ""}"></div>
+        <div class="entity-state">${e.state}</div>
+        <ha-switch ${e.is_exposed ? "checked" : ""} data-id="${e.entity_id}" data-expose="${e.is_exposed ? "false" : "true"}"></ha-switch>
+      </div>`;
+    }).join("") || `<div class="empty"><ha-icon icon="mdi:magnify"></ha-icon>No entities match.</div>`;
 
-    content.innerHTML = `
-      <div class="section-header">
-        Exposed entities <span class="count-badge">${exposedCount}</span>
+    c.innerHTML = `
+      <div class="toolbar">
+        <div class="search-wrap">
+          <ha-icon icon="mdi:magnify"></ha-icon>
+          <input class="search-input" id="search" type="text" placeholder="Search entities…" value="${this._search}">
+        </div>
       </div>
-      <div class="search-bar">
-        <input type="text" placeholder="Search entities…" value="${this._search}" id="search-input">
+      <div class="domain-chips">
+        <div class="chip${!this._domainFilter ? " active" : ""}" data-domain="">All</div>
+        ${domainChips}
       </div>
-      <div class="domain-chips">${chipAll}${chips}</div>
+      <div class="stats">
+        <span><strong>${exposed}</strong> of ${this._entities.length} exposed</span>
+        <span>·</span>
+        <span>${filtered.length} shown</span>
+        ${selCount ? `<span class="sel-label">${selCount} selected</span>` : ""}
+      </div>
+      <div class="batch-bar${selCount ? " visible" : ""}" id="batch-bar">
+        <span>${selCount} selected</span>
+        <button class="btn btn-primary" id="batch-enable">Enable</button>
+        <button class="btn btn-danger" id="batch-disable">Disable</button>
+        <button class="btn btn-outline" id="batch-clear">Clear</button>
+      </div>
+      <div class="select-all-row">
+        <input type="checkbox" id="select-all" ${allFilteredSelected ? "checked" : ""}>
+        <label for="select-all" style="cursor:pointer;font-size:13px;">Select all visible (${filtered.length})</label>
+      </div>
       <div class="entity-list">${rows}</div>`;
 
-    content.querySelector("#search-input").addEventListener("input", e => {
-      this._search = e.target.value;
+    // Search
+    c.querySelector("#search").addEventListener("input", e => { this._search = e.target.value; this._renderContent(); });
+
+    // Domain chips
+    c.querySelectorAll(".chip").forEach(ch =>
+      ch.addEventListener("click", () => { this._domainFilter = ch.dataset.domain || null; this._renderContent(); })
+    );
+
+    // Select all
+    c.querySelector("#select-all").addEventListener("change", ev => {
+      if (ev.target.checked) filtered.forEach(e => this._selected.add(e.entity_id));
+      else filtered.forEach(e => this._selected.delete(e.entity_id));
       this._renderContent();
     });
-    content.querySelectorAll(".chip").forEach(c =>
-      c.addEventListener("click", () => {
-        this._domainFilter = c.dataset.domain || null;
+
+    // Row checkboxes
+    c.querySelectorAll(".row-checkbox").forEach(cb =>
+      cb.addEventListener("change", ev => {
+        ev.stopPropagation();
+        const id = cb.dataset.id;
+        if (cb.checked) this._selected.add(id); else this._selected.delete(id);
         this._renderContent();
       })
     );
-    content.querySelectorAll("ha-switch").forEach(sw =>
-      sw.addEventListener("change", async () => {
-        const entityId = sw.dataset.entity;
+
+    // Individual switches
+    c.querySelectorAll("ha-switch").forEach(sw =>
+      sw.addEventListener("change", async ev => {
+        ev.stopPropagation();
+        const id = sw.dataset.id;
         const expose = sw.dataset.expose === "true";
-        await this._toggleEntity(entityId, expose);
+        await this._setExpose([id], expose);
       })
     );
+
+    // Batch actions
+    if (selCount) {
+      const selIds = [...this._selected];
+      c.querySelector("#batch-enable").addEventListener("click", async () => {
+        await this._setExpose(selIds, true);
+        this._selected.clear();
+      });
+      c.querySelector("#batch-disable").addEventListener("click", async () => {
+        await this._setExpose(selIds, false);
+        this._selected.clear();
+      });
+      c.querySelector("#batch-clear").addEventListener("click", () => {
+        this._selected.clear(); this._renderContent();
+      });
+    }
   }
 
-  _renderSettings(content) {
+  _renderSettings(c) {
     if (!this._draft) return;
     const d = this._draft;
-    const allDomains = [
-      "alarm_control_panel","automation","binary_sensor","button","camera","climate",
-      "cover","device_tracker","fan","group","humidifier","input_boolean","input_button",
-      "input_number","input_select","light","lock","media_player","person","remote",
-      "scene","script","sensor","siren","switch","vacuum","valve","water_heater","weather",
-    ];
 
-    const modeHtml = LABEL_MODE_OPTIONS.map(m => `
-      <label class="mode-option${d.label_mode === m.value ? " selected" : ""}">
-        <input type="radio" name="label_mode" value="${m.value}" ${d.label_mode === m.value ? "checked" : ""}>
-        <div class="mode-option-text">
-          <div class="title">${m.label}</div>
-          <div class="desc">${m.description}</div>
+    const domainPills = ALL_DOMAINS.map(dom =>
+      `<div class="domain-pill${d.included_domains.includes(dom) ? " selected" : ""}" data-domain="${dom}">${dom}</div>`
+    ).join("");
+
+    c.innerHTML = `
+      <div class="settings-section">
+        <h3>Automatic exposure</h3>
+        <p>When enabled, newly discovered entities from the included domains are automatically exposed.</p>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Auto-add new entities</div>
+            <div class="toggle-sub">Automatically expose new entities from included domains</div>
+          </div>
+          <ha-switch id="auto-add" ${d.auto_add_new ? "checked" : ""}></ha-switch>
         </div>
-      </label>`).join("");
-
-    const domainHtml = allDomains.map(dom => `
-      <label class="domain-toggle${d.included_domains.includes(dom) ? " selected" : ""}">
-        <input type="checkbox" value="${dom}" ${d.included_domains.includes(dom) ? "checked" : ""}>
-        ${dom}
-      </label>`).join("");
-
-    content.innerHTML = `
-      <div class="settings-card">
-        <h3>Label</h3>
-        <p>Entities with this HA label are exposed to the Turzi app.</p>
-        <div class="field-label">Expose label</div>
-        <input class="text-input" id="expose-label" type="text" value="${d.expose_label}" placeholder="e.g. turzi">
-        <div class="field-hint">Lowercase. Leave empty to disable label management.</div>
       </div>
-      <div class="settings-card">
-        <h3>Label management mode</h3>
-        <p>Controls how labels are applied and maintained.</p>
-        <div class="mode-options">${modeHtml}</div>
-      </div>
-      <div class="settings-card">
+      <div class="settings-section">
         <h3>Included domains</h3>
-        <p>Entities from these domains are labeled and exposed (based on the selected mode).</p>
-        <div class="domain-grid" id="domain-grid">${domainHtml}</div>
+        <p>Entities from selected domains are exposed by default. Adding a domain immediately exposes all its existing entities. Removing a domain does <em>not</em> hide entities — use the Entities tab for fine control.</p>
+        <div class="domain-grid" id="domain-grid">${domainPills}</div>
       </div>
       <button class="save-btn" id="save-btn" ${this._saving ? "disabled" : ""}>
-        ${this._saving ? '<div class="spinner"></div>' : '<ha-icon icon="mdi:content-save"></ha-icon>'}
-        ${this._saving ? "Saving…" : "Save settings"}
+        ${this._saving
+          ? '<div class="save-spinner"></div> Saving…'
+          : '<ha-icon icon="mdi:content-save"></ha-icon> Save settings'}
       </button>`;
 
-    content.querySelector("#expose-label").addEventListener("input", e => {
-      this._draft.expose_label = e.target.value.trim().toLowerCase();
+    c.querySelector("#auto-add").addEventListener("change", ev => {
+      this._draft.auto_add_new = ev.target.checked;
     });
-    content.querySelectorAll("input[name=label_mode]").forEach(r =>
-      r.addEventListener("change", () => {
-        this._draft.label_mode = r.value;
-        content.querySelectorAll(".mode-option").forEach(o =>
-          o.classList.toggle("selected", o.querySelector("input").value === r.value)
-        );
+    c.querySelectorAll(".domain-pill").forEach(p =>
+      p.addEventListener("click", () => {
+        const dom = p.dataset.domain;
+        if (this._draft.included_domains.includes(dom)) {
+          this._draft.included_domains = this._draft.included_domains.filter(d => d !== dom);
+          p.classList.remove("selected");
+        } else {
+          this._draft.included_domains.push(dom);
+          p.classList.add("selected");
+        }
       })
     );
-    content.querySelectorAll("#domain-grid input[type=checkbox]").forEach(cb =>
-      cb.addEventListener("change", () => {
-        const domains = [...content.querySelectorAll("#domain-grid input:checked")].map(x => x.value);
-        this._draft.included_domains = domains;
-        cb.closest(".domain-toggle").classList.toggle("selected", cb.checked);
-      })
-    );
-    content.querySelector("#save-btn").addEventListener("click", () => this._saveSettings());
+    c.querySelector("#save-btn").addEventListener("click", () => this._saveSettings());
   }
 }
 

@@ -15,14 +15,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 
 from .const import (
-    CONF_ADDITIONAL_ENTITIES,
-    CONF_EXCLUDED_ENTITIES,
-    CONF_EXPOSE_LABEL,
+    CONF_AUTO_ADD_NEW,
+    CONF_EXPOSED_ENTITIES,
     CONF_INCLUDED_DOMAINS,
-    CONF_LABEL_MODE,
-    DEFAULT_EXPOSE_LABEL,
+    DEFAULT_AUTO_ADD_NEW,
     DEFAULT_INCLUDED_DOMAINS,
-    DEFAULT_LABEL_MODE,
     DOMAIN,
     SIGNAL_CONFIG_UPDATED,
 )
@@ -35,7 +32,6 @@ _LOGGER = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _get_entry(hass: HomeAssistant, entry_id: str | None = None):
-    """Return a config entry by ID, or the first one if no ID given."""
     entries = hass.config_entries.async_entries(DOMAIN)
     if not entries:
         return None
@@ -45,7 +41,6 @@ def _get_entry(hass: HomeAssistant, entry_id: str | None = None):
 
 
 def _get_bridge(hass: HomeAssistant, entry_id: str | None = None):
-    """Return the TurziMqttBridge for a config entry."""
     entry = _get_entry(hass, entry_id)
     if entry is None:
         return None
@@ -53,7 +48,7 @@ def _get_bridge(hass: HomeAssistant, entry_id: str | None = None):
 
 
 # ---------------------------------------------------------------------------
-# WebSocket: read-only GET handlers
+# WebSocket: turzi/config
 # ---------------------------------------------------------------------------
 
 @callback
@@ -68,14 +63,16 @@ def websocket_get_config(hass: HomeAssistant, connection, msg: dict) -> None:
         {
             "entry_id": entry.entry_id,
             "house_id": entry.data.get("house_id", ""),
-            "expose_label": entry.options.get(CONF_EXPOSE_LABEL, DEFAULT_EXPOSE_LABEL),
-            "label_mode": entry.options.get(CONF_LABEL_MODE, DEFAULT_LABEL_MODE),
             "included_domains": entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS),
-            "additional_entities": entry.options.get(CONF_ADDITIONAL_ENTITIES, []),
-            "excluded_entities": entry.options.get(CONF_EXCLUDED_ENTITIES, []),
+            "exposed_entities": entry.options.get(CONF_EXPOSED_ENTITIES, []),
+            "auto_add_new": entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
         },
     )
 
+
+# ---------------------------------------------------------------------------
+# WebSocket: turzi/entities
+# ---------------------------------------------------------------------------
 
 @callback
 def websocket_get_entities(hass: HomeAssistant, connection, msg: dict) -> None:
@@ -86,10 +83,8 @@ def websocket_get_entities(hass: HomeAssistant, connection, msg: dict) -> None:
         return
 
     bridge = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    expose_label = entry.options.get(CONF_EXPOSE_LABEL, DEFAULT_EXPOSE_LABEL)
-    additional = set(entry.options.get(CONF_ADDITIONAL_ENTITIES, []))
-    excluded = set(entry.options.get(CONF_EXCLUDED_ENTITIES, []))
-    auto_labeled: set[str] = bridge._auto_labeled_entities if bridge else set()
+    exposed_set: set[str] = set(entry.options.get(CONF_EXPOSED_ENTITIES, []))
+    included_domains: set[str] = set(entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS))
 
     registry = er.async_get(hass)
     result = []
@@ -99,8 +94,8 @@ def websocket_get_entities(hass: HomeAssistant, connection, msg: dict) -> None:
             continue
 
         state = hass.states.get(reg_entry.entity_id)
-        has_label = bool(expose_label and expose_label in reg_entry.labels)
-        is_exposed = bridge.should_expose(reg_entry.entity_id) if bridge else has_label
+        is_exposed = bridge.should_expose(reg_entry.entity_id) if bridge else (reg_entry.entity_id in exposed_set)
+        in_domain = reg_entry.domain in included_domains
 
         result.append(
             {
@@ -114,10 +109,7 @@ def websocket_get_entities(hass: HomeAssistant, connection, msg: dict) -> None:
                 "icon": reg_entry.icon or (state.attributes.get("icon") if state else None),
                 "state": state.state if state else "unavailable",
                 "is_exposed": is_exposed,
-                "has_label": has_label,
-                "is_auto_labeled": reg_entry.entity_id in auto_labeled,
-                "is_additional": reg_entry.entity_id in additional,
-                "is_excluded": reg_entry.entity_id in excluded,
+                "in_domain": in_domain,  # True if entity's domain is in included_domains
             }
         )
 
@@ -126,7 +118,7 @@ def websocket_get_entities(hass: HomeAssistant, connection, msg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# WebSocket: live-update subscription
+# WebSocket: turzi/subscribe — live update push
 # ---------------------------------------------------------------------------
 
 @callback
@@ -146,11 +138,11 @@ async def handle_subscribe_updates(hass: HomeAssistant, connection, msg: dict) -
 
 
 # ---------------------------------------------------------------------------
-# REST views: mutations
+# REST: POST /api/turzi/config — save settings
 # ---------------------------------------------------------------------------
 
 class TurziConfigView(HomeAssistantView):
-    """Save integration config options from the panel."""
+    """Save integration settings from the panel."""
 
     url = "/api/turzi/config"
     name = "api:turzi:config"
@@ -159,70 +151,89 @@ class TurziConfigView(HomeAssistantView):
         vol.Schema(
             {
                 vol.Required("entry_id"): cv.string,
-                vol.Optional(CONF_EXPOSE_LABEL): cv.string,
-                vol.Optional(CONF_LABEL_MODE): vol.In(["seed", "automatic", "mixed"]),
                 vol.Optional(CONF_INCLUDED_DOMAINS): vol.All(cv.ensure_list, [cv.string]),
-                vol.Optional(CONF_ADDITIONAL_ENTITIES): vol.All(cv.ensure_list, [cv.entity_id]),
-                vol.Optional(CONF_EXCLUDED_ENTITIES): vol.All(cv.ensure_list, [cv.entity_id]),
+                vol.Optional(CONF_AUTO_ADD_NEW): cv.boolean,
             }
         )
     )
     async def post(self, request, data: dict):
-        """Handle config update from panel."""
+        """Save domain and auto_add_new settings.
+
+        When included_domains changes, newly-included domain entities are
+        added to exposed_entities. Removing a domain does NOT remove entities
+        (user controls exposure via toggles).
+        """
         hass = request.app["hass"]
-        entry = _get_entry(hass, data.pop("entry_id"))
+        entry_id = data.pop("entry_id")
+        entry = _get_entry(hass, entry_id)
         if entry is None:
             return self.json_message("Entry not found", status_code=404)
 
-        # Normalise label to lowercase
-        if CONF_EXPOSE_LABEL in data:
-            data[CONF_EXPOSE_LABEL] = data[CONF_EXPOSE_LABEL].strip().lower()
+        new_options = {**entry.options}
+        old_domains: set[str] = set(entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS))
+        exposed: set[str] = set(entry.options.get(CONF_EXPOSED_ENTITIES, []))
 
-        new_options = {**entry.options, **data}
+        if CONF_INCLUDED_DOMAINS in data:
+            new_domains: set[str] = set(data[CONF_INCLUDED_DOMAINS])
+            added_domains = new_domains - old_domains
+
+            # Auto-add all entities from newly-included domains
+            if added_domains:
+                registry = er.async_get(hass)
+                for reg_entry in registry.entities.values():
+                    if reg_entry.disabled_by:
+                        continue
+                    if reg_entry.domain in added_domains:
+                        exposed.add(reg_entry.entity_id)
+
+            new_options[CONF_INCLUDED_DOMAINS] = data[CONF_INCLUDED_DOMAINS]
+            new_options[CONF_EXPOSED_ENTITIES] = list(exposed)
+
+        if CONF_AUTO_ADD_NEW in data:
+            new_options[CONF_AUTO_ADD_NEW] = data[CONF_AUTO_ADD_NEW]
+
         hass.config_entries.async_update_entry(entry, options=new_options)
         async_dispatcher_send(hass, SIGNAL_CONFIG_UPDATED)
         return self.json({"success": True})
 
 
-class TurziEntityToggleView(HomeAssistantView):
-    """Add or remove the expose label from a single entity."""
+# ---------------------------------------------------------------------------
+# REST: POST /api/turzi/entities/update — toggle one or many entities
+# ---------------------------------------------------------------------------
 
-    url = "/api/turzi/entities/toggle"
-    name = "api:turzi:entities:toggle"
+class TurziEntityUpdateView(HomeAssistantView):
+    """Add or remove entities from the exposed set."""
+
+    url = "/api/turzi/entities/update"
+    name = "api:turzi:entities:update"
 
     @RequestDataValidator(
         vol.Schema(
             {
                 vol.Required("entry_id"): cv.string,
-                vol.Required("entity_id"): cv.entity_id,
+                vol.Required("entity_ids"): vol.All(cv.ensure_list, [cv.entity_id]),
                 vol.Required("expose"): cv.boolean,
             }
         )
     )
     async def post(self, request, data: dict):
-        """Toggle entity exposure."""
+        """Expose or un-expose a list of entities."""
         hass = request.app["hass"]
         entry = _get_entry(hass, data["entry_id"])
         if entry is None:
             return self.json_message("Entry not found", status_code=404)
 
-        expose_label = entry.options.get(CONF_EXPOSE_LABEL, "")
-        if not expose_label:
-            return self.json_message("No expose label configured", status_code=400)
+        exposed: set[str] = set(entry.options.get(CONF_EXPOSED_ENTITIES, []))
 
-        registry = er.async_get(hass)
-        reg_entry = registry.async_get(data["entity_id"])
-        if reg_entry is None:
-            return self.json_message("Entity not found", status_code=404)
+        if data["expose"]:
+            exposed.update(data["entity_ids"])
+        else:
+            exposed.difference_update(data["entity_ids"])
 
-        new_labels = (
-            reg_entry.labels | {expose_label}
-            if data["expose"]
-            else reg_entry.labels - {expose_label}
-        )
-        registry.async_update_entity(data["entity_id"], labels=new_labels)
+        new_options = {**entry.options, CONF_EXPOSED_ENTITIES: list(exposed)}
+        hass.config_entries.async_update_entry(entry, options=new_options)
         async_dispatcher_send(hass, SIGNAL_CONFIG_UPDATED)
-        return self.json({"success": True})
+        return self.json({"success": True, "exposed_count": len(exposed)})
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +243,7 @@ class TurziEntityToggleView(HomeAssistantView):
 async def async_register_websockets(hass: HomeAssistant) -> None:
     """Register all WebSocket commands and REST views."""
     hass.http.register_view(TurziConfigView)
-    hass.http.register_view(TurziEntityToggleView)
+    hass.http.register_view(TurziEntityUpdateView)
 
     async_register_command(hass, handle_subscribe_updates)
 
