@@ -87,29 +87,41 @@ def websocket_get_entities(hass: HomeAssistant, connection, msg: dict) -> None:
     included_domains: set[str] = set(entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS))
 
     registry = er.async_get(hass)
+
+    # Build registry map (non-disabled only)
+    registry_map = {
+        reg_entry.entity_id: reg_entry
+        for reg_entry in registry.entities.values()
+        if not reg_entry.disabled_by
+    }
+
+    # Union: registered entities + all live states (catches groups, helpers, etc.)
+    all_ids = set(registry_map.keys()) | {s.entity_id for s in hass.states.async_all()}
+
     result = []
-
-    for reg_entry in registry.entities.values():
-        if reg_entry.disabled_by:
-            continue
-
-        state = hass.states.get(reg_entry.entity_id)
-        is_exposed = bridge.should_expose(reg_entry.entity_id) if bridge else (reg_entry.entity_id in exposed_set)
-        in_domain = reg_entry.domain in included_domains
+    for entity_id in all_ids:
+        reg_entry = registry_map.get(entity_id)
+        state = hass.states.get(entity_id)
+        domain = entity_id.split(".")[0]
+        is_exposed = bridge.should_expose(entity_id) if bridge else (entity_id in exposed_set)
+        in_domain = domain in included_domains
 
         result.append(
             {
-                "entity_id": reg_entry.entity_id,
+                "entity_id": entity_id,
                 "name": (
-                    reg_entry.name
+                    (reg_entry.name if reg_entry else None)
                     or (state.attributes.get("friendly_name") if state else None)
-                    or reg_entry.entity_id
+                    or entity_id
                 ),
-                "domain": reg_entry.domain,
-                "icon": reg_entry.icon or (state.attributes.get("icon") if state else None),
+                "domain": domain,
+                "icon": (
+                    (reg_entry.icon if reg_entry else None)
+                    or (state.attributes.get("icon") if state else None)
+                ),
                 "state": state.state if state else "unavailable",
                 "is_exposed": is_exposed,
-                "in_domain": in_domain,  # True if entity's domain is in included_domains
+                "in_domain": in_domain,
             }
         )
 
@@ -237,6 +249,24 @@ class TurziEntityUpdateView(HomeAssistantView):
 
 
 # ---------------------------------------------------------------------------
+# WebSocket: turzi/status — broker connection status + event log
+# ---------------------------------------------------------------------------
+
+@callback
+def websocket_get_status(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Return broker connection status and event log."""
+    entry = _get_entry(hass, msg.get("entry_id"))
+    if entry is None:
+        connection.send_error(msg["id"], "not_found", "No Turzi config entry found")
+        return
+    bridge = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if bridge is None:
+        connection.send_error(msg["id"], "not_found", "Bridge not running")
+        return
+    connection.send_result(msg["id"], bridge.get_status())
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -265,6 +295,17 @@ async def async_register_websockets(hass: HomeAssistant) -> None:
         websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
             {
                 vol.Required("type"): "turzi/entities",
+                vol.Optional("entry_id"): cv.string,
+            }
+        ),
+    )
+    async_register_command(
+        hass,
+        "turzi/status",
+        websocket_get_status,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): "turzi/status",
                 vol.Optional("entry_id"): cv.string,
             }
         ),

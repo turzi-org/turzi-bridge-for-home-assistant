@@ -12,6 +12,7 @@ It manages the connection to an external MQTT broker and handles:
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import logging
 import math
@@ -98,6 +99,13 @@ class TurziMqttBridge:
         # Track entity_ids that have been published to MQTT (for cleanup)
         self._published_entities: set[str] = set()
 
+        # Status tracking (exposed via turzi/status WebSocket)
+        self._connection_status: str = "connecting"
+        self._reconnect_count: int = 0
+        self._last_connect_time: datetime | None = None
+        self._last_disconnect_time: datetime | None = None
+        self._event_log: collections.deque = collections.deque(maxlen=50)
+
     @classmethod
     def from_config_entry(cls, hass: HomeAssistant, entry) -> TurziMqttBridge:
         """Create a TurziMqttBridge from a config entry."""
@@ -122,6 +130,30 @@ class TurziMqttBridge:
     def should_expose(self, entity_id: str) -> bool:
         """Return True if entity_id is in the exposed set."""
         return entity_id in self._exposed_entities
+
+    def get_status(self) -> dict:
+        """Return a status snapshot for the panel Status tab."""
+        return {
+            "status": self._connection_status,
+            "broker": self._broker,
+            "port": self._port,
+            "house_id": self._house_id,
+            "use_tls": self._use_tls,
+            "reconnect_count": self._reconnect_count,
+            "last_connect_time": self._last_connect_time.isoformat() if self._last_connect_time else None,
+            "last_disconnect_time": self._last_disconnect_time.isoformat() if self._last_disconnect_time else None,
+            "published_count": len(self._published_entities),
+            "exposed_count": len(self._exposed_entities),
+            "event_log": list(self._event_log),
+        }
+
+    def _log_event(self, level: str, message: str) -> None:
+        """Append an event to the ring-buffer log."""
+        self._event_log.append({
+            "time": datetime.now(tz=timezone.utc).isoformat(),
+            "level": level,
+            "message": message,
+        })
 
     def update_config(
         self,
@@ -294,7 +326,11 @@ class TurziMqttBridge:
 
     async def _connection_loop(self) -> None:
         """Maintain the MQTT connection with exponential backoff reconnect."""
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+
         reconnect_delay = _RECONNECT_MIN_DELAY
+        self._connection_status = "connecting"
+        self._log_event("info", f"Connecting to {self._broker}:{self._port}…")
 
         while not self._stopping:
             try:
@@ -309,21 +345,19 @@ class TurziMqttBridge:
                     keepalive=60,
                 ) as client:
                     self._client = client
-                    reconnect_delay = _RECONNECT_MIN_DELAY  # Reset on success
+                    self._connection_status = "connected"
+                    self._last_connect_time = datetime.now(tz=timezone.utc)
+                    reconnect_delay = _RECONNECT_MIN_DELAY
+                    self._log_event("success", f"Connected to {self._broker}:{self._port}")
+                    async_dispatcher_send(self.hass, SIGNAL_CONFIG_UPDATED)
                     _LOGGER.info(
                         "Connected to MQTT broker %s:%s for house '%s'",
-                        self._broker,
-                        self._port,
-                        self._house_id,
+                        self._broker, self._port, self._house_id,
                     )
 
-                    # Subscribe to incoming topics
                     await self._subscribe_topics(client)
-
-                    # Publish initial states for all exposed entities
                     await self._publish_all_current_states(client)
 
-                    # Listen for incoming messages
                     async for message in client.messages:
                         await self._handle_message(message)
 
@@ -331,18 +365,20 @@ class TurziMqttBridge:
                 self._client = None
                 if self._stopping:
                     break
+                self._last_disconnect_time = datetime.now(tz=timezone.utc)
+                self._reconnect_count += 1
+                self._connection_status = "reconnecting"
+                self._log_event(
+                    "warning",
+                    f"Connection lost: {err}. Reconnecting in {reconnect_delay}s (attempt {self._reconnect_count})…",
+                )
+                async_dispatcher_send(self.hass, SIGNAL_CONFIG_UPDATED)
                 _LOGGER.warning(
-                    "MQTT connection lost for house '%s': %s. "
-                    "Reconnecting in %ds...",
-                    self._house_id,
-                    err,
-                    reconnect_delay,
+                    "MQTT connection lost for house '%s': %s. Reconnecting in %ds…",
+                    self._house_id, err, reconnect_delay,
                 )
                 await asyncio.sleep(reconnect_delay)
-                reconnect_delay = min(
-                    reconnect_delay * _RECONNECT_BACKOFF_FACTOR,
-                    _RECONNECT_MAX_DELAY,
-                )
+                reconnect_delay = min(reconnect_delay * _RECONNECT_BACKOFF_FACTOR, _RECONNECT_MAX_DELAY)
 
             except asyncio.CancelledError:
                 self._client = None
@@ -352,17 +388,23 @@ class TurziMqttBridge:
                 self._client = None
                 if self._stopping:
                     break
+                self._last_disconnect_time = datetime.now(tz=timezone.utc)
+                self._reconnect_count += 1
+                self._connection_status = "reconnecting"
+                self._log_event(
+                    "error",
+                    f"Unexpected error. Reconnecting in {reconnect_delay}s (attempt {self._reconnect_count})…",
+                )
+                async_dispatcher_send(self.hass, SIGNAL_CONFIG_UPDATED)
                 _LOGGER.exception(
-                    "Unexpected error in MQTT connection loop for house '%s'. "
-                    "Reconnecting in %ds...",
-                    self._house_id,
-                    reconnect_delay,
+                    "Unexpected error in MQTT connection loop for house '%s'. Reconnecting in %ds…",
+                    self._house_id, reconnect_delay,
                 )
                 await asyncio.sleep(reconnect_delay)
-                reconnect_delay = min(
-                    reconnect_delay * _RECONNECT_BACKOFF_FACTOR,
-                    _RECONNECT_MAX_DELAY,
-                )
+                reconnect_delay = min(reconnect_delay * _RECONNECT_BACKOFF_FACTOR, _RECONNECT_MAX_DELAY)
+
+        self._connection_status = "disconnected"
+        self._log_event("info", "Bridge stopped")
 
     async def _subscribe_topics(self, client: aiomqtt.Client) -> None:
         """Subscribe to all incoming MQTT topics."""
@@ -584,13 +626,13 @@ class TurziMqttBridge:
                 service_data,
                 blocking=False,
             )
+            self._log_event(
+                "info",
+                f"Command {service_domain}.{service_action} → {entity_id} (by {user_name})",
+            )
             _LOGGER.info(
                 "Executed command %s.%s for %s (by %s <%s>)",
-                service_domain,
-                service_action,
-                entity_id,
-                user_name,
-                user_email,
+                service_domain, service_action, entity_id, user_name, user_email,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.exception(
