@@ -1,7 +1,7 @@
 # Turzi HA App Connector
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/turzi-org/turzi-home-assistant-integrations/main/assets/logo-turzi-square.png" alt="Turzi Logo" width="120" />
+  <img src="https://raw.githubusercontent.com/turzi-org/turzi-home-assistant-integrations/main/custom_components/turzi_ha_app_connector/brand/logo.png" alt="Turzi" width="120" />
 </p>
 
 <p align="center">
@@ -15,7 +15,6 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/turzi-org/turzi-home-assistant-integrations?style=flat-square" alt="License"></a>
 </p>
 
-
 ---
 
 ## Overview
@@ -28,6 +27,8 @@
 - **Re-publishes** all entity states on demand (app reconnect or manual reload)
 - **Cleans up** MQTT retained messages when entities are removed from the exposed set
 
+All entity exposure is managed through a **custom sidebar panel** — no need to touch HA labels, the options flow, or YAML.
+
 > The connector implements the **MQTT transport binding** of the Turzi Protocol. See [PROTOCOL.md](PROTOCOL.md) for the full specification.
 
 ---
@@ -36,7 +37,7 @@
 
 | Requirement | Version |
 |---|---|
-| Home Assistant | ≥ 2024.1.0 |
+| Home Assistant | ≥ 2024.4.0 |
 | External MQTT broker | Any (Mosquitto, EMQX, HiveMQ, etc.) |
 | Python dependency | `aiomqtt >= 2.0.0` (installed automatically) |
 
@@ -47,7 +48,7 @@
 ### Via HACS (Recommended)
 
 1. Open **HACS** → **Integrations** → ⋮ menu → **Custom repositories**
-2. Add `https://github.com/turzi-org/turzi_ha_app_connector` as a custom repository (category: **Integration**)
+2. Add `https://github.com/turzi-org/turzi-home-assistant-integrations` as a custom repository (category: **Integration**)
 3. Find **Turzi HA App Connector** in HACS and click **Download**
 4. Restart Home Assistant
 
@@ -75,89 +76,75 @@
 | **House ID** | Unique identifier for this home (used as the MQTT topic prefix) | — |
 | **Use TLS** | Enable TLS encryption for the MQTT connection | `false` |
 
-> The **House ID** is a free-form string (e.g., `my_house`, `apartment_4b`). All MQTT topics will be scoped under `house/{house_id}/`, so it must be unique per installation.
+> The **House ID** is a free-form string (e.g., `my_house`, `apartment_4b`). All MQTT topics are scoped under `house/{house_id}/` — it must be unique per installation.
 
-The integration tests the connection to the MQTT broker before saving. If the connection fails, an error will be shown and no entry will be created.
+The integration tests the connection to the MQTT broker before saving. If the connection fails, an error is shown and no entry is created.
 
 ### Reconfiguration
 
-To update broker settings after initial setup, go to **Settings → Devices & Services**, find the integration entry, and select **Reconfigure**.
+To update broker settings after initial setup, go to **Settings → Devices & Services**, find the Turzi entry, and select **Reconfigure**.
 
 ---
 
-## Entity Management Panel
+## Turzi Panel
 
-After setup, a **Turzi** entry appears in the HA sidebar. This is the primary UI for all entity and label configuration — there is no options flow for entity settings.
+After setup, a **Turzi** entry (🅣 icon) appears in the HA sidebar. This is the primary UI for all entity management — there is no separate options flow for exposure settings.
 
-The panel requires admin access and has two tabs.
+The panel requires admin access and has two tabs: **Entities** and **Status**.
 
 ---
 
-### Entities tab
+### Entities Tab
 
-A searchable, filterable list of every entity in your HA instance.
+The Entities tab combines exposure management and domain settings in a single screen.
+
+#### Exposure Settings (top section)
+
+| Control | What it does |
+|---|---|
+| **Auto-expose new entities** toggle | When ON, newly discovered entities from included domains are automatically exposed |
+| **Included domains** search box | Type to search and add domains whose entities should be auto-exposed |
+| **Domain tags** (× to remove) | Currently included domains; click × to remove a domain |
+| **Select all / Clear all** | Adds or removes all available domains at once |
+
+> Changes to included domains and the auto-expose toggle **save automatically** after a 1-second debounce. Adding a domain immediately exposes all its existing entities.
+
+#### Entity List
 
 | Control | What it does |
 |---|---|
 | **Search bar** | Filter by entity name or entity ID |
-| **Domain chips** | Narrow the list to a single domain |
-| **Toggle switch** | Add or remove the expose label from that entity |
+| **Domain filter chips** | Narrow the list to a single domain (shows entity count) |
+| **Row checkbox** (left) | Select entity for batch operations |
+| **Toggle switch** (right) | Expose or exclude this entity individually |
+| **Select all visible** | Select all entities matching the current search/filter |
+| **Batch bar** | Appears when entities are selected — Expose / Exclude / Clear |
 
-**Entity badges:**
+#### Status Badges
 
 | Badge | Meaning |
 |---|---|
-| `auto` | Labeled automatically by the integration (domain rule match) |
-| `manual` | Label was added manually by you |
-| `additional` | Entity is in the additional entities list |
+| `Auto Exposed` (orange) | Exposed because its domain is in the included domains list |
+| `Manually Exposed` (green) | Exposed explicitly, outside of any included domain |
+| `User Excluded` (amber) | In an included domain, but manually switched off |
+| *(no badge)* | Not exposed, and not in any included domain |
 
 Toggling a switch takes effect immediately — the entity's MQTT state is published or cleared in real time without any restart.
 
 ---
 
-### Settings tab
+### Status Tab
 
-| Field | Description |
-|---|---|
-| **Expose label** | The HA label applied to exposed entities (lowercase, e.g. `turzi`). Leave empty to disable label management. |
-| **Label management mode** | How the integration manages labels (see below). |
-| **Included domains** | Entities from these domains are labeled when rules run. |
+Shows the current state of the MQTT connection:
 
-#### Label management modes
-
-| Mode | What happens on save | New entities | Domain rules change |
-|---|---|---|---|
-| **Seed** *(default)* | Labels applied once to all matching entities. Future additions are manual. | ❌ Manual | Re-seeds (add-only) |
-| **Automatic** | Labels fully synced with domain rules at all times. | ✅ Auto-labeled | ✅ Labels added & removed |
-| **Mixed** | Same as Automatic, but labels you applied manually are never auto-removed. | ✅ Auto-labeled (domain matches) | ✅ Removes auto-labeled only |
-
-> **Default included domains:** `light`, `switch`, `climate`, `cover`, `fan`, `alarm_control_panel`, `lock`, `group`
+- **Connection status** — Connected / Reconnecting (animated) / Disconnected
+- **Broker details** — host, port, TLS, house ID
+- **Statistics** — how many entities are exposed and how many are currently published
+- **Reconnect counter** — how many times the bridge has reconnected since startup
+- **Timestamps** — last connected and last disconnected
+- **Activity log** — last 50 events (connections, disconnections, commands received from the app), displayed in reverse-chronological order
 
 ---
-
-### How exposure is determined at runtime
-
-```
-1. Entity has the expose label      → exposed  (always wins)
-2. Entity is in additional_entities → exposed  (safety-net)
-3. Otherwise                        → not exposed
-```
-
-Domain rules are only used to decide which entities receive the label — they are not evaluated at runtime.
-
----
-
-### Live sync
-
-Changes take effect immediately without restarting HA:
-
-- **Toggle on** in panel → label added → state published to MQTT
-- **Toggle off** in panel → label removed → retained MQTT message cleared
-- **New entity registered** in HA (Automatic/Mixed only) → auto-labeled and published if it matches domain rules
-- **Settings saved** → label sweep runs, MQTT state synced across all affected entities
-
----
-
 
 ## MQTT Topic Structure
 
@@ -178,7 +165,6 @@ house/my_house/state/light/living_room
 house/my_house/state/climate/main_thermostat
 house/my_house/command/light/living_room
 house/my_house/app/command/heartbeat
-house/my_house/app/command/reload
 ```
 
 ---
@@ -187,8 +173,6 @@ house/my_house/app/command/reload
 
 ### State Update (HA → App)
 
-Published whenever an entity's state changes, and on initial connect / reload.
-
 ```json
 {
   "state": "on",
@@ -196,22 +180,19 @@ Published whenever an entity's state changes, and on initial connect / reload.
   "timestamp": 1705325400,
   "attributes": {
     "brightness": 200,
-    "color_mode": "color_temp",
     "color_temp_kelvin": 3500
   }
 }
 ```
 
-The `attributes` field is only present when the domain defines attributes and at least one has a non-null value.
+The `attributes` field is only included when at least one value is non-null.
 
 ### Command (App → HA)
 
 ```json
 {
   "command": "light.turn_on",
-  "parameters": {
-    "brightness": 255
-  },
+  "parameters": { "brightness": 255 },
   "metadata": {
     "user_name": "John Doe",
     "user_email": "john@example.com"
@@ -219,41 +200,19 @@ The `attributes` field is only present when the domain defines attributes and at
 }
 ```
 
-Every command is logged to the HA **Logbook** with the user name and action for auditability.
+Every command is logged to the HA **Logbook** with the user name and action.
 
 ### Heartbeat
 
 **Ping** (App → HA): `{ "state": "ping" }`
 
-**Pong** (HA → App): `{ "state": "pong", "timestamp": "2024-01-15T14:30:00.000000+00:00" }`
-
-### Reload Request
-
-**App → HA**: `{ "command": "reload" }`
-
-The integration re-publishes all currently exposed entity states with `retain=true`.
-
----
-
-## Manual Reload via Helper
-
-You can also trigger a full state reload from within HA (e.g., from an automation or dashboard) by toggling an `input_boolean` helper:
-
-```yaml
-# configuration.yaml
-input_boolean:
-  app_reload_house_structure:
-    name: "Reload Turzi App Structure"
-    icon: mdi:refresh
-```
-
-Turning `input_boolean.app_reload_house_structure` **on** will cause the bridge to re-publish all exposed entity states to MQTT.
+**Pong** (HA → App): `{ "state": "pong", "timestamp": "2024-01-15T14:30:00Z" }`
 
 ---
 
 ## Reconnection Behaviour
 
-The bridge automatically reconnects to the MQTT broker using **exponential backoff**:
+The bridge reconnects automatically using **exponential backoff**:
 
 | Attempt | Delay |
 |---|---|
@@ -263,13 +222,11 @@ The bridge automatically reconnects to the MQTT broker using **exponential backo
 | 4th | 40 s |
 | 5th+ | 60 s (max) |
 
-On reconnect, all exposed entity states are re-published automatically.
+All exposed entity states are re-published on every successful reconnect.
 
 ---
 
 ## Supported Domains & Attributes
-
-The following table summarises the attributes published per domain. See [PROTOCOL.md](PROTOCOL.md) for the full attribute specification.
 
 | Domain | Key Attributes |
 |---|---|
@@ -286,7 +243,7 @@ The following table summarises the attributes published per domain. See [PROTOCO
 | `camera` | `is_recording`, `is_streaming` |
 | `weather` | `temperature`, `humidity`, `pressure`, `wind_speed` |
 | `person` / `device_tracker` | `latitude`, `longitude`, `gps_accuracy` |
-| `switch`, `group`, `scene`, `script`, `button`, `input_boolean`, `input_button` | *(state only)* |
+| `switch`, `group`, `scene`, `script`, `button`, `input_boolean` | *(state only)* |
 
 ---
 
@@ -294,28 +251,29 @@ The following table summarises the attributes published per domain. See [PROTOCO
 
 ### Cannot connect to MQTT broker
 
-- Verify the broker is reachable from the HA host (`ping <broker>`)
+- Verify the broker is reachable from the HA host
 - Double-check port, username, and password
-- If using TLS, make sure your broker's certificate is trusted
-- Check the HA logs: **Settings → System → Logs**, filter by `turzi`
+- If using TLS, ensure the broker's certificate is trusted
+- Check HA logs: **Settings → System → Logs**, filter by `turzi`
+- Check the **Status tab** in the Turzi panel for connection events
 
 ### Entities not appearing in the app
 
-- Confirm the entity's domain is selected in the Options flow
-- Check that the entity is not in the **Excluded entities** list
-- Trigger a reload via `input_boolean.app_reload_house_structure` or the app's refresh action
+- Open the Turzi panel → Entities tab and confirm the entity shows as **Auto Exposed** or **Manually Exposed**
+- If the toggle is off, switch it on — MQTT publish is immediate
+- Trigger a reload from the app or by publishing `{ "command": "reload" }` to `house/{id}/app/command/reload`
 
 ### Commands not executing
 
-- Verify the MQTT topic format matches `house/{house_id}/command/{domain}/{entity_slug}`
+- Verify the topic format: `house/{house_id}/command/{domain}/{entity_slug}`
 - Ensure the `command` field uses `{domain}.{action}` format (e.g., `light.turn_on`)
-- Check HA logs for errors related to service calls
+- Check HA logs for service call errors
 
 ---
 
 ## Protocol Reference
 
-For the full message specification, topic schema, domain attribute definitions, and implementation guidelines, see **[PROTOCOL.md](PROTOCOL.md)**.
+See **[PROTOCOL.md](PROTOCOL.md)** for the full message specification, topic schema, domain attribute definitions, and implementation guidelines.
 
 ---
 
