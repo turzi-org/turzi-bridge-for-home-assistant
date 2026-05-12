@@ -39,6 +39,20 @@ DEFAULT_LABEL_MODE = LabelMode.SEED
 # Default port
 DEFAULT_PORT = 1883
 
+# Panel constants
+PANEL_URL = "/api/turzi_ha_app_connector/panel"
+PANEL_TITLE = "Turzi"
+PANEL_ICON = "mdi:home-automation"
+PANEL_NAME = "turzi-panel"
+PANEL_FOLDER = "frontend"
+PANEL_FILENAME = "turzi-panel.js"
+CUSTOM_COMPONENTS = "custom_components"
+INTEGRATION_FOLDER = "turzi_ha_app_connector"
+
+# Dispatcher signal for live panel updates
+SIGNAL_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
+
+
 # Default domains to include on first setup
 DEFAULT_INCLUDED_DOMAINS = [
     "light",

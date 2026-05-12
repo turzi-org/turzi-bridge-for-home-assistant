@@ -19,6 +19,8 @@ from .const import (
     DOMAIN,
 )
 from .mqtt_bridge import TurziMqttBridge
+from .panel import async_register_panel, async_unregister_panel
+from .websockets import async_register_websockets
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +37,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
 
     # Start the MQTT bridge
     await bridge.async_start()
+
+    # Register sidebar panel and WebSocket/REST API
+    await async_register_panel(hass)
+    await async_register_websockets(hass)
 
     # Register listener for options updates (entity filter changes)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
@@ -54,6 +60,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bo
 
     if bridge:
         await bridge.async_stop()
+
+    # Unregister panel if no more entries remain
+    if not hass.data.get(DOMAIN):
+        async_unregister_panel(hass)
 
     # Clean up domain data if no more entries
     if DOMAIN in hass.data and not hass.data[DOMAIN]:
