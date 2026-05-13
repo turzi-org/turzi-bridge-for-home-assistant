@@ -580,6 +580,21 @@ class TurziMqttBridge:
         user_name = metadata.get("user_name", "Unknown")
         user_email = metadata.get("user_email", "")
 
+        # Guard: reject commands for entities that are not exposed.
+        # This prevents the app from controlling entities the user has not
+        # explicitly opted in to expose via the panel.
+        if not self.should_expose(entity_id):
+            _LOGGER.warning(
+                "Rejected command for non-exposed entity '%s' (topic: %s)",
+                entity_id,
+                topic,
+            )
+            self._log_event(
+                "warning",
+                f"Rejected command for non-exposed entity: {entity_id}",
+            )
+            return
+
         # Special handling for alarm_control_panel
         if domain == "alarm_control_panel":
             alarm_mode = parameters.get("alarm_mode")
