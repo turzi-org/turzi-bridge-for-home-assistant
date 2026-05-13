@@ -13,10 +13,7 @@ export const STYLES = `
   .header{background:#111;border-bottom:3px solid var(--T);padding:0 16px;
     display:flex;align-items:center;gap:10px;height:60px;flex-shrink:0;}
   .hlogo{width:32px;height:32px;object-fit:contain;}
-  .hword{font-size:19px;font-weight:700;letter-spacing:1px;color:#fff;flex:1;}
-  .hword .di{position:relative;display:inline-block;}
-  .hword .di::after{content:'';position:absolute;top:-4px;left:50%;
-    transform:translateX(-50%);width:4px;height:4px;background:var(--T);border-radius:50%;}
+  .hword{font-size:19px;font-weight:700;letter-spacing:.5px;color:#fff;flex:1;}
   .tabs{display:flex;background:#111;padding:0 16px;flex-shrink:0;
     border-bottom:1px solid rgba(255,255,255,.07);}
   .tab{padding:10px 16px;cursor:pointer;font-size:12px;font-weight:600;

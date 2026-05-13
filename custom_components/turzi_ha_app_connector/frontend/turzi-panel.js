@@ -116,7 +116,7 @@ class TurziPanel extends HTMLElement {
       <div class="layout">
         <div class="header">
           <img class="hlogo" src="${LOGO}" alt="" onerror="this.style.display='none'">
-          <div class="hword">turz<span class="di">i</span></div>
+          <div class="hword">turzi App Connector for HA</div>
         </div>
         <div class="tabs">
           <div class="tab active" data-tab="entities">Entities</div>
