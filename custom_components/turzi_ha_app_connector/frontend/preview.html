@@ -81,7 +81,7 @@ customElements.define("ha-switch", class extends HTMLElement {
   _updateState() {
     const on = this.hasAttribute("checked");
     this._inp.checked = on;
-    this._sl.style.background = on ? "#0288d1" : "#555";
+    this._sl.style.background = on ? "#FF8400" : "#555";
     this._th.style.left = on ? "18px" : "2px";
   }
   get checked() { return this.hasAttribute("checked"); }
@@ -133,12 +133,26 @@ const MOCK_ENTITIES = [
   { entity_id: "media_player.living_room_tv",      name: "Living Room TV",        domain: "media_player",        icon: null,              is_exposed: false, in_domain: false },
 ];
 
+const MOCK_STATUS = {
+  status: "connected", broker: "mqtt.local", port: 1883, use_tls: false,
+  house_id: "mi_casa", reconnect_count: 1, published_count: 11, exposed_count: 12,
+  last_connect_time: new Date(Date.now() - 60000).toISOString(),
+  last_disconnect_time: new Date(Date.now() - 90000).toISOString(),
+  event_log: [
+    { time: new Date(Date.now()-90000).toISOString(), level:"warning", message:"Connection lost: timeout. Reconnecting in 5s (attempt 1)\u2026" },
+    { time: new Date(Date.now()-60000).toISOString(), level:"success", message:"Connected to mqtt.local:1883" },
+    { time: new Date(Date.now()-30000).toISOString(), level:"info",    message:"Command light.turn_on \u2192 light.living_room (by John Doe)" },
+    { time: new Date(Date.now()- 5000).toISOString(), level:"info",    message:"Command lock.lock \u2192 lock.front_door (by Jane)" },
+  ],
+};
+
 // Minimal hass mock
 window._mockHass = {
   connection: {
     sendMessagePromise: async (msg) => {
-      if (msg.type === "turzi/config") return MOCK_CONFIG;
+      if (msg.type === "turzi/config")   return MOCK_CONFIG;
       if (msg.type === "turzi/entities") return MOCK_ENTITIES;
+      if (msg.type === "turzi/status")   return MOCK_STATUS;
       return {};
     },
     subscribeMessage: async (cb, msg) => () => {},
@@ -156,8 +170,8 @@ window._mockHass = {
 };
 </script>
 
-<!-- Load actual panel JS -->
-<script src="turzi-panel.js"></script>
+<!-- Load actual panel JS as ES module -->
+<script type="module" src="turzi-panel.js"></script>
 
 <body>
 <div class="frame">

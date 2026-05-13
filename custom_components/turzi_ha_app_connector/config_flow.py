@@ -26,6 +26,7 @@ from .const import (
     DEFAULT_PORT,
     DOMAIN,
 )
+from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -105,14 +106,22 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["base"] = "cannot_connect"
 
             if not errors:
-                # Seed exposed_entities from DEFAULT_INCLUDED_DOMAINS at setup time.
-                # The panel will show these pre-toggled; users adjust from there.
+                # Seed exposed_entities immediately from the entity registry so
+                # the panel shows pre-populated entities on first open.
+                registry = er.async_get(self.hass)
+                domain_set = set(DEFAULT_INCLUDED_DOMAINS)
+                exposed = [
+                    reg_entry.entity_id
+                    for reg_entry in registry.entities.values()
+                    if not reg_entry.disabled_by
+                    and reg_entry.domain in domain_set
+                ]
                 return self.async_create_entry(
                     title=f"Turzi - {user_input[CONF_HOUSE_ID]}",
                     data=user_input,
                     options={
                         CONF_INCLUDED_DOMAINS: DEFAULT_INCLUDED_DOMAINS,
-                        CONF_EXPOSED_ENTITIES: [],  # Seeded at bridge start from HA registry
+                        CONF_EXPOSED_ENTITIES: exposed,
                         CONF_AUTO_ADD_NEW: DEFAULT_AUTO_ADD_NEW,
                     },
                 )

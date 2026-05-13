@@ -6,10 +6,10 @@ import { STYLES } from "./turzi-styles.js";
 const LOGO = "/api/turzi_ha_app_connector/panel/turzi-logo.png";
 const ALL_DOMAINS = [
   "alarm_control_panel","automation","binary_sensor","button","camera","climate",
-  "cover","device_tracker","event","fan","group","humidifier","input_boolean",
+  "cover","device_tracker","fan","group","humidifier","input_boolean",
   "input_button","input_number","input_select","light","lock","media_player",
   "number","person","remote","scene","script","select","sensor","siren","switch",
-  "todo","tts","update","vacuum","valve","water_heater","weather",
+  "vacuum","valve","water_heater","weather",
 ];
 
 const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "—";

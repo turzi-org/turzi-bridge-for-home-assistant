@@ -44,7 +44,8 @@ INTEGRATION_FOLDER = "turzi_ha_app_connector"
 # Dispatcher signal for live panel updates
 SIGNAL_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 
-# All selectable domains in the panel Settings tab
+# All selectable domains in the panel domain picker (auto-expose candidates).
+# Keep this in sync with ALL_DOMAINS in frontend/turzi-panel.js.
 SELECTABLE_DOMAINS = [
     "alarm_control_panel",
     "automation",
@@ -64,10 +65,12 @@ SELECTABLE_DOMAINS = [
     "light",
     "lock",
     "media_player",
+    "number",
     "person",
     "remote",
     "scene",
     "script",
+    "select",
     "sensor",
     "siren",
     "switch",
