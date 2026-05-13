@@ -320,7 +320,12 @@ class TurziPanel extends HTMLElement {
       <div class="elist">${rows}</div>`;
 
     this._bindCfg(c);
-    c.querySelector("#srch").addEventListener("input", ev=>{this._search=ev.target.value;this._render();});
+    c.querySelector("#srch").addEventListener("input", ev=>{
+      const s=ev.target.selectionStart, e=ev.target.selectionEnd;
+      this._search=ev.target.value; this._render();
+      const srch=this.shadowRoot.getElementById("srch");
+      if(srch){srch.focus();srch.setSelectionRange(s,e);}
+    });
     c.querySelectorAll(".chip").forEach(ch=>ch.addEventListener("click",()=>{this._df=ch.dataset.domain||null;this._render();}));
     c.querySelector("#sa").addEventListener("change", ev=>{
       filtered.forEach(e=>ev.target.checked?this._sel.add(e.entity_id):this._sel.delete(e.entity_id));
