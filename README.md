@@ -1,7 +1,7 @@
 # turzi Bridge for Home Assistant
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/turzi-org/turzi-home-assistant-integrations/main/custom_components/turzi_bridge/brand/logo.png" alt="Turzi" width="120" />
+  <img src="https://raw.githubusercontent.com/turzi-org/turzi-bridge-for-home-assistant/main/assets/turzi-logo.png" alt="Turzi" width="120" />
 </p>
 
 <p align="center">
@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/turzi-org/turzi-home-assistant-integrations/releases"><img src="https://img.shields.io/github/v/release/turzi-org/turzi-home-assistant-integrations?style=flat-square" alt="Release"></a>
+  <a href="https://github.com/turzi-org/turzi-bridge-for-home-assistant/releases"><img src="https://img.shields.io/github/v/release/turzi-org/turzi-bridge-for-home-assistant?style=flat-square" alt="Release"></a>
   <a href="https://www.home-assistant.io/"><img src="https://img.shields.io/badge/Home%20Assistant-2024.4.0%2B-blue?style=flat-square&logo=home-assistant" alt="HA Version"></a>
   <a href="https://hacs.xyz/"><img src="https://img.shields.io/badge/HACS-Custom-orange?style=flat-square" alt="HACS"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/turzi-org/turzi-home-assistant-integrations?style=flat-square" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/turzi-org/turzi-bridge-for-home-assistant?style=flat-square" alt="License"></a>
 </p>
 
 ---
@@ -48,7 +48,7 @@ All entity exposure is managed through a **custom sidebar panel** — no need to
 ### Via HACS (Recommended)
 
 1. Open **HACS** → **Integrations** → ⋮ menu → **Custom repositories**
-2. Add `https://github.com/turzi-org/turzi-home-assistant-integrations` as a custom repository (category: **Integration**)
+2. Add `https://github.com/turzi-org/turzi-bridge-for-home-assistant` as a custom repository (category: **Integration**)
 3. Find **turzi Bridge** in HACS and click **Download**
 4. Restart Home Assistant
 
@@ -142,7 +142,7 @@ Shows the current state of the MQTT connection:
 - **Statistics** — how many entities are exposed and how many are currently published
 - **Reconnect counter** — how many times the bridge has reconnected since startup
 - **Timestamps** — last connected and last disconnected
-- **Activity log** — last 50 events (connections, disconnections, commands received from the app), displayed in reverse-chronological order
+- **Activity log** — last 50 events (connections, disconnections, commands received from the app), displayed in reverse-chronological order and **updated in real time** — no page reload needed
 
 ---
 
