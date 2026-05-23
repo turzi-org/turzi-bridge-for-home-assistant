@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.start import async_at_started
 
 from .const import (
     CONF_AUTO_ADD_NEW,
@@ -40,7 +41,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = bridge
 
-    await bridge.async_start()
+    async def _start_bridge(_hass: HomeAssistant) -> None:
+        """Start the bridge once HA has finished starting."""
+        await bridge.async_start()
+
+    async_at_started(hass, _start_bridge)
 
     await async_register_panel(hass)
     await async_register_websockets(hass)
@@ -48,7 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     _LOGGER.info(
-        "turzi Bridge set up for house '%s'",
+        "turzi Bridge set up for house '%s' — will connect after HA start",
         entry.data.get("house_id", "unknown"),
     )
     return True
