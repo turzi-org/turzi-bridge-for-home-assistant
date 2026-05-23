@@ -47,6 +47,7 @@ from .const import (
     DEFAULT_INCLUDED_DOMAINS,
     DOMAIN,
     DOMAIN_ATTRIBUTES,
+    HA_TO_PROTOCOL_KEY,
     SIGNAL_CONFIG_UPDATED,
 )
 
@@ -213,6 +214,7 @@ class TurziMqttBridge:
         """Extract domain-specific attributes from a state object.
 
         Uses the DOMAIN_ATTRIBUTES mapping from the Turzi Protocol spec.
+        HA attribute names are renamed to protocol names via HA_TO_PROTOCOL_KEY.
         Returns None if no attributes are defined or all values are null.
         """
         attr_keys = DOMAIN_ATTRIBUTES.get(domain)
@@ -220,10 +222,11 @@ class TurziMqttBridge:
             return None
 
         attributes: dict[str, Any] = {}
-        for key in attr_keys:
-            value = state.attributes.get(key)
+        for ha_key in attr_keys:
+            value = state.attributes.get(ha_key)
             if value is not None:
-                attributes[key] = value
+                protocol_key = HA_TO_PROTOCOL_KEY.get(ha_key, ha_key)
+                attributes[protocol_key] = value
 
         return attributes if attributes else None
 
@@ -495,12 +498,13 @@ class TurziMqttBridge:
 
         # Climate fallback: target_temperature can be absent from new_state during
         # HVAC mode transitions (e.g. heat → cool). Mirror the original Node-RED logic:
-        # 1. try old_state.target_temperature
+        # 1. try old_state.temperature (HA attr name)
         # 2. try new_state.prev_target_temp
+        # Always written to payload as 'target_temperature' (Turzi Protocol name).
         if domain == "climate" and (attributes or {}).get("target_temperature") is None:
             fallback: Any = None
             if old_state is not None:
-                fallback = old_state.attributes.get("target_temperature")
+                fallback = old_state.attributes.get("temperature")
             if fallback is None:
                 fallback = state.attributes.get("prev_target_temp")
             if fallback is not None:

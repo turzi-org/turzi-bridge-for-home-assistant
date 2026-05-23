@@ -91,7 +91,7 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "device_class",             # 🆕
     ],
     "climate": [
-        "target_temperature",       # 🔒 existing
+        "temperature",              # 🔒 existing (HA attr name; renamed to target_temperature in payload)
         "current_temperature",      # 🔒 existing
         "hvac_action",              # 🔒 existing
         "fan_mode",                 # 🔒 existing
@@ -218,6 +218,12 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
     ],
     # State-only domains (no attributes extracted):
     # switch, group, scene, script, button, input_boolean, input_button
+}
+
+# Map HA attribute names → Turzi Protocol key names where they differ.
+# Applied at publish time so payloads always use the protocol-defined field names.
+HA_TO_PROTOCOL_KEY: dict[str, str] = {
+    "temperature": "target_temperature",  # climate: HA uses 'temperature', protocol uses 'target_temperature'
 }
 
 # Alarm mode -> HA service action mapping
