@@ -460,9 +460,11 @@ class TurziMqttBridge:
             if not self.should_expose(entity_id):
                 return
 
+            old_state = event.data.get("old_state")
+
             if self._client is not None:
                 self.hass.async_create_task(
-                    self._publish_state(self._client, new_state),
+                    self._publish_state(self._client, new_state, old_state=old_state),
                     f"turzi_publish_{entity_id}",
                 )
 
@@ -472,7 +474,7 @@ class TurziMqttBridge:
         )
 
     async def _publish_state(
-        self, client: aiomqtt.Client, state: State
+        self, client: aiomqtt.Client, state: State, old_state: State | None = None
     ) -> None:
         """Publish an entity state update to MQTT."""
         entity_id = state.entity_id
@@ -490,6 +492,22 @@ class TurziMqttBridge:
 
         # Extract domain-specific attributes
         attributes = self._extract_attributes(domain, state)
+
+        # Climate fallback: target_temperature can be absent from new_state during
+        # HVAC mode transitions (e.g. heat → cool). Mirror the original Node-RED logic:
+        # 1. try old_state.target_temperature
+        # 2. try new_state.prev_target_temp
+        if domain == "climate" and (attributes or {}).get("target_temperature") is None:
+            fallback: Any = None
+            if old_state is not None:
+                fallback = old_state.attributes.get("target_temperature")
+            if fallback is None:
+                fallback = state.attributes.get("prev_target_temp")
+            if fallback is not None:
+                if attributes is None:
+                    attributes = {}
+                attributes["target_temperature"] = fallback
+
         if attributes:
             payload["attributes"] = attributes
 
