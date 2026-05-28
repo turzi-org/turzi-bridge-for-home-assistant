@@ -153,9 +153,9 @@ All topics are prefixed with `house/{house_id}/`.
 | Direction | Topic | QoS | Retain | Purpose |
 |---|---|---|---|---|
 | HA → App | `house/{id}/state/{domain}/{entity_slug}` | 1 | ✅ | Entity state update |
-| HA → App | `house/{id}/app/state/heartbeat` | 1 | ❌ | Heartbeat pong |
-| App → HA | `house/{id}/command/{domain}/{entity_slug}` | 0 | ❌ | Control command |
-| App → HA | `house/{id}/app/command/heartbeat` | 1 | ❌ | Heartbeat ping |
+| HA → App | `house/{id}/app/state/heartbeat` | 0 | ❌ | Heartbeat pong |
+| App → HA | `house/{id}/command/{domain}/{entity_slug}` | 2 | ❌ | Control command |
+| App → HA | `house/{id}/app/command/heartbeat` | 0 | ❌ | Heartbeat ping |
 | App → HA | `house/{id}/app/command/reload` | 1 | ❌ | Full state reload |
 
 **Example topics** for `house_id = my_house`:

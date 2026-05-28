@@ -355,10 +355,10 @@ All topics are prefixed with `house/{house_id}/`, where `house_id` is a unique i
 | Direction | Topic Pattern | QoS | Retain | Message Type |
 |-----------|---------------|-----|--------|-------------|
 | Core → App | `house/{id}/state/{domain}/{entity_slug}` | 1 | ✅ | State Update |
-| Core → App | `house/{id}/app/state/heartbeat` | 1 | ❌ | Heartbeat Pong |
-| App → Core | `house/{id}/app/command/heartbeat` | 1 | ❌ | Heartbeat Ping |
+| Core → App | `house/{id}/app/state/heartbeat` | 0 | ❌ | Heartbeat Pong |
+| App → Core | `house/{id}/app/command/heartbeat` | 0 | ❌ | Heartbeat Ping |
 | App → Core | `house/{id}/app/command/reload` | 1 | ❌ | State Reload Request |
-| App → Core | `house/{id}/command/{domain}/{entity_slug}` | 0 | ❌ | Command |
+| App → Core | `house/{id}/command/{domain}/{entity_slug}` | 2 | ❌ | Command |
 
 - `{domain}` — The entity domain (e.g., `light`, `climate`, `cover`)
 - `{entity_slug}` — The entity identifier without the domain prefix (e.g., for `light.living_room`, the slug is `living_room`)

@@ -415,12 +415,12 @@ class TurziMqttBridge:
         """Subscribe to all incoming MQTT topics."""
         # Commands from app: house/{id}/command/#
         command_topic = f"house/{self._house_id}/command/#"
-        await client.subscribe(command_topic, qos=0)
+        await client.subscribe(command_topic, qos=2)
         _LOGGER.debug("Subscribed to %s", command_topic)
 
         # Heartbeat ping: house/{id}/app/command/heartbeat
         heartbeat_topic = f"house/{self._house_id}/app/command/heartbeat"
-        await client.subscribe(heartbeat_topic, qos=1)
+        await client.subscribe(heartbeat_topic, qos=0)
         _LOGGER.debug("Subscribed to %s", heartbeat_topic)
 
         # App reload request: house/{id}/app/command/reload
@@ -700,7 +700,7 @@ class TurziMqttBridge:
             await self._client.publish(
                 topic,
                 payload=json.dumps(payload),
-                qos=1,
+                qos=0,
                 retain=False,
             )
             _LOGGER.debug("Heartbeat pong sent for house '%s'", self._house_id)
