@@ -146,33 +146,33 @@ Shows the current state of the MQTT connection:
 
 ---
 
-## MQTT Topic Structure
+## App Integration Guide
 
-All topics are prefixed with `house/{house_id}/`.
+If you are developing the Turzi mobile app or a custom client, follow these guidelines to ensure robust, real-time communication with the Home Assistant bridge.
 
-| Direction | Topic | QoS | Retain | Purpose |
-|---|---|---|---|---|
-| HA → App | `house/{id}/state/{domain}/{entity_slug}` | 1 | ✅ | Entity state update |
-| HA → App | `house/{id}/app/state/heartbeat` | 0 | ❌ | Heartbeat pong |
-| App → HA | `house/{id}/command/{domain}/{entity_slug}` | 2 | ❌ | Control command |
-| App → HA | `house/{id}/app/command/heartbeat` | 0 | ❌ | Heartbeat ping |
-| App → HA | `house/{id}/app/command/reload` | 1 | ❌ | Full state reload |
+### 1. Connection & Session
+**Connect with a Clean Session (`clean_session=True`).** 
+Because the HA bridge publishes all entity states as retained messages, a clean session ensures that upon connection, the app instantly receives exactly one snapshot of the absolute latest state for every exposed entity. Using `clean_session=False` will flood the app with a queue of outdated historical changes that occurred while the phone was locked.
 
-**Example topics** for `house_id = my_house`:
+### 2. Quality of Service (QoS) & Topics
 
-```
-house/my_house/state/light/living_room
-house/my_house/state/climate/main_thermostat
-house/my_house/command/light/living_room
-house/my_house/app/command/heartbeat
-```
+All topics are prefixed with `house/{house_id}/`. To achieve exactly-once delivery for commands and ensure no live state updates are missed, the app's MQTT client MUST use the following QoS levels:
 
----
+| Direction | Action | Topic | QoS | Retain | Purpose |
+|---|---|---|---|---|---|
+| HA → App | **Subscribe** | `house/{id}/state/#` | **1** | ✅ | Live entity state updates |
+| HA → App | **Subscribe** | `house/{id}/app/state/heartbeat` | **0** | ❌ | Heartbeat pong |
+| App → HA | **Publish** | `house/{id}/command/{domain}/{entity_slug}` | **2** | ❌ | Control command |
+| App → HA | **Publish** | `house/{id}/app/command/heartbeat` | **0** | ❌ | Heartbeat ping |
+| App → HA | **Publish** | `house/{id}/app/command/reload` | **1** | ❌ | Full state reload |
 
-## Payload Formats
+> *Note: For QoS 2 to work correctly on commands, both the publisher (App) and subscriber (HA bridge) must use QoS 2. If the app publishes at QoS 1, delivery will be downgraded to QoS 1.*
 
-### State Update (HA → App)
+### 3. Handling State Updates (HA → App)
 
+Subscribe to `house/{id}/state/#` immediately after connecting. The broker will instantly push the retained state for every exposed entity. 
+
+**Payload format:**
 ```json
 {
   "state": "on",
@@ -184,11 +184,14 @@ house/my_house/app/command/heartbeat
   }
 }
 ```
+*   The `attributes` field is only included when at least one value is non-null.
+*   **Entity Deletions:** If an entity is removed from the exposed list in HA, the bridge publishes an **empty payload** to its topic. The app should interpret an empty payload as an instruction to delete that entity from the UI.
 
-The `attributes` field is only included when at least one value is non-null.
+### 4. Sending Commands (App → HA)
 
-### Command (App → HA)
+Send commands to the specific entity topic.
 
+**Payload format:**
 ```json
 {
   "command": "light.turn_on",
@@ -199,14 +202,15 @@ The `attributes` field is only included when at least one value is non-null.
   }
 }
 ```
+*   The `command` field must contain the exact HA service (e.g., `light.turn_on`, `cover.set_cover_position`).
+*   Idempotent commands (e.g., `turn_on`, `turn_off`) are strongly preferred over non-idempotent ones (e.g., `toggle`) to prevent unexpected behavior during network retries.
+*   The `metadata` is recorded in the HA Logbook for auditing.
 
-Every command is logged to the HA **Logbook** with the user name and action.
+### 5. Heartbeats
 
-### Heartbeat
-
-**Ping** (App → HA): `{ "state": "ping" }`
-
-**Pong** (HA → App): `{ "state": "pong", "timestamp": "2024-01-15T14:30:00Z" }`
+To verify the bridge is actively running, the app can publish a ping. The bridge will respond immediately.
+*   **Ping** (App publishes): `{ "state": "ping" }`
+*   **Pong** (App receives): `{ "state": "pong", "timestamp": "2024-01-15T14:30:00Z" }`
 
 ---
 
