@@ -10,10 +10,14 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.start import async_at_started
 
+from .cloud import TurziCloudSync
 from .const import (
     CONF_AUTO_ADD_NEW,
+    CONF_BRIDGE_TOKEN,
+    CONF_CONFIG_REVISION,
     CONF_EXPOSED_ENTITIES,
     CONF_INCLUDED_DOMAINS,
+    CONF_MODE,
     CONF_NEVER_EXPOSE,
     DEFAULT_AUTO_ADD_NEW,
     DEFAULT_INCLUDED_DOMAINS,
@@ -38,11 +42,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
     bridge = TurziMqttBridge.from_config_entry(hass, entry)
 
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = bridge
+    hass.data[DOMAIN][entry.entry_id] = {"bridge": bridge, "cloud": None}
+
+    # Cloud-enrolled entries get the management plane: catalog registration
+    # up (HTTPS) and remote exposure config down (catalog response + the
+    # retained config/exposure topic).
+    if entry.data.get(CONF_MODE) == "cloud" and entry.data.get(CONF_BRIDGE_TOKEN):
+        cloud = TurziCloudSync(hass, entry)
+        hass.data[DOMAIN][entry.entry_id]["cloud"] = cloud
+        bridge.exposure_callback = cloud.async_apply_exposure
+        bridge.config_revision = entry.options.get(CONF_CONFIG_REVISION)
 
     async def _start_bridge(_hass: HomeAssistant) -> None:
         """Start the bridge once HA has finished starting."""
         await bridge.async_start()
+        cloud_sync = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("cloud")
+        if cloud_sync:
+            cloud_sync.start()
 
     async_at_started(hass, _start_bridge)
 
@@ -57,8 +73,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
 
 async def async_unload_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bool:
     """Unload a turzi Bridge config entry."""
-    bridge: TurziMqttBridge | None = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None) or {}
 
+    cloud: TurziCloudSync | None = data.get("cloud")
+    if cloud:
+        cloud.stop()
+
+    bridge: TurziMqttBridge | None = data.get("bridge")
     if bridge:
         await bridge.async_stop()
 
@@ -113,7 +134,8 @@ async def _async_migrate_options(hass: HomeAssistant, entry: TurziConfigEntry) -
 
 async def _async_options_updated(hass: HomeAssistant, entry: TurziConfigEntry) -> None:
     """Handle options update — sync bridge config without full reload."""
-    bridge: TurziMqttBridge | None = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}
+    bridge: TurziMqttBridge | None = data.get("bridge")
     if bridge is None:
         return
 
@@ -123,6 +145,13 @@ async def _async_options_updated(hass: HomeAssistant, entry: TurziConfigEntry) -
         auto_add_new=entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
         never_expose=entry.options.get(CONF_NEVER_EXPOSE, []),
     )
+
+    # Acknowledge the applied revision via retained availability (v1.1 §5),
+    # and report effective exposure upstream when locally edited.
+    await bridge.async_set_config_revision(entry.options.get(CONF_CONFIG_REVISION))
+    cloud: TurziCloudSync | None = data.get("cloud")
+    if cloud:
+        cloud.schedule_register()
 
     async_dispatcher_send(hass, SIGNAL_CONFIG_UPDATED)
 

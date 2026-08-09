@@ -116,6 +116,12 @@ class TurziMqttBridge:
         # tagged origin.type="turzi" with exact command correlation (§4).
         self._command_contexts: dict[str, str] = {}
 
+        # Remote exposure config (cloud mode): set by __init__ when the entry
+        # supports it. Callback receives the parsed config/exposure payload;
+        # config_revision is reported in the retained availability payload.
+        self.exposure_callback = None
+        self.config_revision: int | None = None
+
         # Status tracking (exposed via turzi/status WebSocket)
         self._connection_status: str = "connecting"
         self._reconnect_count: int = 0
@@ -477,6 +483,12 @@ class TurziMqttBridge:
         await client.subscribe(reload_topic, qos=1)
         _LOGGER.debug("Subscribed to %s", reload_topic)
 
+        # Remote exposure config (retained; cloud mode only)
+        if self.exposure_callback is not None:
+            config_topic = f"house/{self._house_id}/config/exposure"
+            await client.subscribe(config_topic, qos=1)
+            _LOGGER.debug("Subscribed to %s", config_topic)
+
     async def _publish_all_current_states(self, client: aiomqtt.Client) -> None:
         """Publish the current state of all exposed entities.
 
@@ -615,6 +627,18 @@ class TurziMqttBridge:
         # App-initiated reload request
         if topic == f"house/{self._house_id}/app/command/reload":
             await self._handle_reload_request()
+            return
+
+        # Remote exposure config (PROTOCOL.md, Exposure Configuration)
+        if topic == f"house/{self._house_id}/config/exposure":
+            if self.exposure_callback is None:
+                return
+            try:
+                exposure = json.loads(message.payload)
+            except (json.JSONDecodeError, TypeError):
+                _LOGGER.error("Invalid JSON on config/exposure")
+                return
+            await self.exposure_callback(exposure)
             return
 
         # Command from app: house/{id}/command/{domain}/{entity_slug}
@@ -771,12 +795,17 @@ class TurziMqttBridge:
     # -------------------------------------------------------------------------
 
     async def _publish_availability(self, client: aiomqtt.Client, state: str) -> None:
-        """Publish the retained availability payload (v1.1 §1)."""
+        """Publish the retained availability payload (v1.1 §1).
+
+        config_revision doubles as the exposure-config acknowledgment (§5).
+        """
         payload: dict[str, Any] = {
             "state": state,
             "timestamp": math.floor(datetime.now(tz=timezone.utc).timestamp()),
             "protocol_version": PROTOCOL_VERSION,
         }
+        if self.config_revision is not None:
+            payload["config_revision"] = self.config_revision
         try:
             await client.publish(
                 f"house/{self._house_id}/availability",
@@ -786,6 +815,14 @@ class TurziMqttBridge:
             )
         except aiomqtt.MqttError:
             _LOGGER.warning("Failed to publish availability for house '%s'", self._house_id)
+
+    async def async_set_config_revision(self, revision: int | None) -> None:
+        """Update the applied exposure revision and re-announce availability."""
+        if revision == self.config_revision:
+            return
+        self.config_revision = revision
+        if self._client is not None:
+            await self._publish_availability(self._client, "online")
 
     async def _publish_ack(
         self, command_id: str, status: str, reason: str | None = None

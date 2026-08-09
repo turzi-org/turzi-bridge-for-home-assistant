@@ -33,6 +33,8 @@ CONF_AUTO_ADD_NEW = "auto_add_new"
 # Local-only by design — remote exposure configuration cannot override it
 # (PROTOCOL.md, Exposure Configuration). Survives re-enrollment.
 CONF_NEVER_EXPOSE = "never_expose"
+# Last applied remote exposure revision (cloud mode; PROTOCOL.md §5)
+CONF_CONFIG_REVISION = "config_revision"
 
 # Default port
 DEFAULT_PORT = 1883

@@ -74,6 +74,12 @@
       "reconfigure_successful": "Broker settings updated successfully."
     }
   },
+  "issues": {
+    "token_revoked": {
+      "title": "Turzi Cloud connection revoked",
+      "description": "This bridge was unlinked from Turzi Cloud. Ask your community manager for a new enrollment token, then re-add the integration."
+    }
+  },
   "options": {
     "step": {
       "init": {
