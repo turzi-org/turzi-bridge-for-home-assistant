@@ -2,8 +2,27 @@
   "config": {
     "step": {
       "user": {
+        "title": "Set up turzi Bridge",
+        "menu_options": {
+          "cloud": "Connect to Turzi Cloud (enrollment token)",
+          "manual": "Self-hosted / manual broker setup"
+        }
+      },
+      "cloud": {
+        "title": "Connect to Turzi Cloud",
+        "description": "Paste the enrollment token generated in the Turzi Community Manager. The bridge will be provisioned automatically.",
+        "data": {
+          "enrollment_token": "Enrollment token",
+          "api_base_url": "API base URL"
+        },
+        "data_description": {
+          "enrollment_token": "Single-use token (TRZ-XXXX-XXXX-XXXX) generated for this home.",
+          "api_base_url": "Only change this when connecting to a self-hosted Turzi backend."
+        }
+      },
+      "manual": {
         "title": "MQTT Broker Configuration",
-        "description": "Configure the connection to your external MQTT broker.",
+        "description": "Configure the connection to your own MQTT broker (self-hosted / local mode).",
         "data": {
           "broker": "Broker hostname",
           "port": "Port",
@@ -43,8 +62,11 @@
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the MQTT broker. Please check your settings.",
+      "cannot_connect": "Failed to connect. Please check your settings and network.",
       "invalid_host": "Invalid broker hostname.",
+      "token_invalid": "This enrollment token is unknown, expired, or already used. Generate a new one in the Turzi Community Manager.",
+      "rate_limited": "Too many attempts. Please wait a few minutes and try again.",
+      "home_not_ready": "This home is not ready for enrollment yet — ask your community manager to configure its smart home connection.",
       "unknown": "An unexpected error occurred."
     },
     "abort": {

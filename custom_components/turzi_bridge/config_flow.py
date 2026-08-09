@@ -12,20 +12,26 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
 from .const import (
+    CONF_API_BASE_URL,
     CONF_AUTO_ADD_NEW,
+    CONF_BRIDGE_TOKEN,
     CONF_BROKER,
+    CONF_ENROLLMENT_TOKEN,
     CONF_EXPOSED_ENTITIES,
     CONF_HOUSE_ID,
     CONF_INCLUDED_DOMAINS,
+    CONF_MODE,
     CONF_PASSWORD,
     CONF_PORT,
     CONF_USE_TLS,
     CONF_USERNAME,
     DEFAULT_AUTO_ADD_NEW,
+    DEFAULT_CLOUD_API_BASE_URL,
     DEFAULT_INCLUDED_DOMAINS,
     DEFAULT_PORT,
     DOMAIN,
 )
+from .enrollment import EnrollmentError, async_enroll
 from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,11 +77,29 @@ def _build_broker_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
+def _default_options(hass) -> dict[str, Any]:
+    """Seed exposure options from the entity registry (manual mode)."""
+    registry = er.async_get(hass)
+    domain_set = set(DEFAULT_INCLUDED_DOMAINS)
+    exposed = [
+        reg_entry.entity_id
+        for reg_entry in registry.entities.values()
+        if not reg_entry.disabled_by and reg_entry.domain in domain_set
+    ]
+    return {
+        CONF_INCLUDED_DOMAINS: DEFAULT_INCLUDED_DOMAINS,
+        CONF_EXPOSED_ENTITIES: exposed,
+        CONF_AUTO_ADD_NEW: DEFAULT_AUTO_ADD_NEW,
+    }
+
+
 class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the config flow for turzi Bridge.
 
-    Only broker connectivity is configured here.
-    All entity exposure settings are managed via the Turzi sidebar panel.
+    Two setup modes (PROTOCOL.md §4 deployment modes):
+    - cloud: paste a single-use enrollment token; broker connection and
+      per-home credentials are provisioned by the Turzi platform.
+    - manual: enter broker details directly (self-hosted / local mode).
     """
 
     VERSION = 1
@@ -83,7 +107,61 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial setup step."""
+        """First step: pick the setup mode."""
+        return self.async_show_menu(step_id="user", menu_options=["cloud", "manual"])
+
+    async def async_step_cloud(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Cloud setup: exchange an enrollment token for full provisioning."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            base_url = (
+                user_input.get(CONF_API_BASE_URL) or DEFAULT_CLOUD_API_BASE_URL
+            ).strip()
+            try:
+                result = await async_enroll(
+                    self.hass, base_url, user_input[CONF_ENROLLMENT_TOKEN]
+                )
+            except EnrollmentError as err:
+                errors["base"] = err.code
+            else:
+                await self.async_set_unique_id(result.house_id)
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=f"turzi Bridge for Home Assistant — {result.house_id}",
+                    data={
+                        CONF_MODE: "cloud",
+                        CONF_BROKER: result.mqtt_host,
+                        CONF_PORT: result.mqtt_port,
+                        CONF_USERNAME: result.mqtt_username,
+                        CONF_PASSWORD: result.mqtt_password,
+                        CONF_HOUSE_ID: result.house_id,
+                        CONF_USE_TLS: result.mqtt_tls,
+                        CONF_BRIDGE_TOKEN: result.bridge_token,
+                        CONF_API_BASE_URL: base_url,
+                    },
+                    options=_default_options(self.hass),
+                )
+
+        return self.async_show_form(
+            step_id="cloud",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_ENROLLMENT_TOKEN): str,
+                    vol.Optional(
+                        CONF_API_BASE_URL, default=DEFAULT_CLOUD_API_BASE_URL
+                    ): str,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manual setup (self-hosted / local mode)."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -106,28 +184,14 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["base"] = "cannot_connect"
 
             if not errors:
-                # Seed exposed_entities immediately from the entity registry so
-                # the panel shows pre-populated entities on first open.
-                registry = er.async_get(self.hass)
-                domain_set = set(DEFAULT_INCLUDED_DOMAINS)
-                exposed = [
-                    reg_entry.entity_id
-                    for reg_entry in registry.entities.values()
-                    if not reg_entry.disabled_by
-                    and reg_entry.domain in domain_set
-                ]
                 return self.async_create_entry(
                     title=f"turzi Bridge for Home Assistant — {user_input[CONF_HOUSE_ID]}",
-                    data=user_input,
-                    options={
-                        CONF_INCLUDED_DOMAINS: DEFAULT_INCLUDED_DOMAINS,
-                        CONF_EXPOSED_ENTITIES: exposed,
-                        CONF_AUTO_ADD_NEW: DEFAULT_AUTO_ADD_NEW,
-                    },
+                    data={**user_input, CONF_MODE: "manual"},
+                    options=_default_options(self.hass),
                 )
 
         return self.async_show_form(
-            step_id="user",
+            step_id="manual",
             data_schema=_build_broker_schema(),
             errors=errors,
         )

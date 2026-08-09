@@ -18,6 +18,13 @@ CONF_PASSWORD = "password"
 CONF_HOUSE_ID = "house_id"
 CONF_USE_TLS = "use_tls"
 
+# Cloud enrollment (BRIDGE_CLOUD_API.md) — absent on manual/self-hosted setups
+CONF_MODE = "mode"  # "cloud" | "manual"
+CONF_BRIDGE_TOKEN = "bridge_token"
+CONF_API_BASE_URL = "api_base_url"
+CONF_ENROLLMENT_TOKEN = "enrollment_token"
+DEFAULT_CLOUD_API_BASE_URL = "https://api.turzi.cloud/api/v2"
+
 # Options entry keys (stored in entry.options)
 CONF_INCLUDED_DOMAINS = "included_domains"
 CONF_EXPOSED_ENTITIES = "exposed_entities"
