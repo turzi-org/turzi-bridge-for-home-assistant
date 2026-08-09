@@ -87,13 +87,13 @@
         "description": "Choose which entities are published to the Turzi app. Entities in the privacy blocklist are never published, in any mode — not even when exposure is managed remotely.",
         "data": {
           "included_domains": "Included domains",
-          "exposed_entities": "Exposed entities",
+          "exposed_entities": "Manually exposed entities",
           "auto_add_new": "Automatically expose new entities",
           "never_expose": "Privacy blocklist (never expose)"
         },
         "data_description": {
-          "included_domains": "Domains whose entities can be exposed.",
-          "exposed_entities": "The entities currently published to the app.",
+          "included_domains": "ALL entities in these domains are published automatically.",
+          "exposed_entities": "Individual entities published IN ADDITION to the included domains (e.g. a specific sensor).",
           "auto_add_new": "New entities in included domains are exposed automatically.",
           "never_expose": "These entities are never published, overriding every other setting. Survives re-enrollment."
         }

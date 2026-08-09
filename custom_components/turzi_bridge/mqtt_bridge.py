@@ -153,10 +153,14 @@ class TurziMqttBridge:
     # -------------------------------------------------------------------------
 
     def should_expose(self, entity_id: str) -> bool:
-        """Return True if entity_id is exposed and not privacy-blocked."""
+        """Effective exposure: included domains expose wholesale; the
+        exposed_entities list holds MANUAL additions only; the privacy
+        blocklist wins over everything."""
         if entity_id in self._never_expose:
             return False
-        return entity_id in self._exposed_entities
+        if entity_id in self._exposed_entities:
+            return True
+        return entity_id.split(".")[0] in self._included_domains
 
     def get_status(self) -> dict:
         """Return a status snapshot for the panel Status tab."""
@@ -225,17 +229,6 @@ class TurziMqttBridge:
                     self._remove_entity_from_mqtt(self._client, entity_id),
                     f"turzi_remove_{entity_id}",
                 )
-
-    async def _persist_exposed_entities(self) -> None:
-        """Persist the current exposed_entities set to config entry options."""
-        from homeassistant.helpers.dispatcher import async_dispatcher_send
-
-        entry = self.hass.config_entries.async_get_entry(self._entry_id)
-        if entry is None:
-            return
-        new_options = {**entry.options, CONF_EXPOSED_ENTITIES: list(self._exposed_entities)}
-        self.hass.config_entries.async_update_entry(entry, options=new_options)
-        async_dispatcher_send(self.hass, SIGNAL_CONFIG_UPDATED)
 
     # -------------------------------------------------------------------------
     # Attribute extraction
@@ -332,32 +325,21 @@ class TurziMqttBridge:
                 return
 
             if action == "create" and self._auto_add_new:
-                # Auto-add new entity if its domain is in included_domains
-                domain = entity_id.split(".")[0]
-                if domain not in self._included_domains:
-                    return
-                if entity_id in self._never_expose:
+                # Domain inclusion exposes new entities inherently; just
+                # publish the initial state immediately.
+                if not self.should_expose(entity_id):
                     return
                 reg = er.async_get(self.hass)
                 reg_entry = reg.async_get(entity_id)
                 if reg_entry is None or reg_entry.disabled_by:
                     return
-                if entity_id in self._exposed_entities:
-                    return
-                _LOGGER.debug("Auto-adding new entity %s (domain: %s)", entity_id, domain)
-                self._exposed_entities.add(entity_id)
-                # Publish immediately
+                _LOGGER.debug("Publishing newly created entity %s", entity_id)
                 state = self.hass.states.get(entity_id)
                 if state and self._client is not None:
                     self.hass.async_create_task(
                         self._publish_state(self._client, state),
                         f"turzi_publish_new_{entity_id}",
                     )
-                # Persist asynchronously
-                self.hass.async_create_task(
-                    self._persist_exposed_entities(),
-                    "turzi_persist_exposed_entities",
-                )
 
             elif action == "remove":
                 if entity_id in self._published_entities and self._client is not None:

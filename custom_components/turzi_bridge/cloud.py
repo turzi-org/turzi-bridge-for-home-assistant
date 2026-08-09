@@ -90,8 +90,7 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
                 "device_class": (
                     state.attributes.get("device_class") if state else None
                 ),
-                "exposed": reg_entry.entity_id in exposed
-                and reg_entry.entity_id not in blocked,
+                "exposed": reg_entry.entity_id not in blocked,
                 "locally_blocked": reg_entry.entity_id in blocked,
                 "last_seen": state.last_updated.isoformat() if state else None,
                 "added_on": created_at.isoformat() if created_at else None,
