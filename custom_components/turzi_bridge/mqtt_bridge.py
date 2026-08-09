@@ -23,6 +23,7 @@ from typing import Any
 import aiomqtt
 
 from homeassistant.core import (
+    Context,
     Event,
     EventStateChangedData,
     HomeAssistant,
@@ -34,6 +35,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
     ALARM_MODE_MAP,
+    CLOCK_SKEW_TOLERANCE_SECONDS,
     CONF_AUTO_ADD_NEW,
     CONF_BROKER,
     CONF_EXPOSED_ENTITIES,
@@ -45,9 +47,11 @@ from .const import (
     CONF_USERNAME,
     DEFAULT_AUTO_ADD_NEW,
     DEFAULT_INCLUDED_DOMAINS,
+    DEFAULT_TTL_CEILING_SECONDS,
     DOMAIN,
     DOMAIN_ATTRIBUTES,
     HA_TO_PROTOCOL_KEY,
+    PROTOCOL_VERSION,
     SIGNAL_CONFIG_UPDATED,
 )
 
@@ -99,6 +103,15 @@ class TurziMqttBridge:
 
         # Track entity_ids that have been published to MQTT (for cleanup)
         self._published_entities: set[str] = set()
+
+        # Protocol v1.1 — command dedupe: command_id -> monotonic receipt time.
+        # Retention must be >= the TTL ceiling (PROTOCOL v1.1 §2) or a late
+        # duplicate could pass both dedupe and expiry and actuate twice.
+        self._seen_command_ids: dict[str, float] = {}
+        # Protocol v1.1 — origin attribution: HA context.id -> command_id for
+        # service calls made by this bridge, so resulting state changes are
+        # tagged origin.type="turzi" with exact command correlation (§4).
+        self._command_contexts: dict[str, str] = {}
 
         # Status tracking (exposed via turzi/status WebSocket)
         self._connection_status: str = "connecting"
@@ -248,6 +261,19 @@ class TurziMqttBridge:
         """Stop the MQTT bridge and clean up all resources."""
         self._stopping = True
 
+        # Graceful availability: overwrite the retained LWT payload so clients
+        # see a deliberate shutdown instead of waiting on broker keepalive.
+        if self._client is not None:
+            try:
+                await self._client.publish(
+                    f"house/{self._house_id}/availability",
+                    payload=json.dumps({"state": "offline", "reason": "shutdown"}),
+                    qos=1,
+                    retain=True,
+                )
+            except aiomqtt.MqttError:
+                _LOGGER.debug("Could not publish graceful offline availability")
+
         # Unsubscribe from HA events
         if self._unsub_state_listener:
             self._unsub_state_listener()
@@ -348,6 +374,14 @@ class TurziMqttBridge:
                     password=self._password,
                     tls_params=tls_params,
                     keepalive=60,
+                    will=aiomqtt.Will(
+                        topic=f"house/{self._house_id}/availability",
+                        payload=json.dumps(
+                            {"state": "offline", "reason": "connection_lost"}
+                        ),
+                        qos=1,
+                        retain=True,
+                    ),
                 ) as client:
                     self._client = client
                     self._connection_status = "connected"
@@ -361,6 +395,7 @@ class TurziMqttBridge:
                     )
 
                     await self._subscribe_topics(client)
+                    await self._publish_availability(client, "online")
                     await self._publish_all_current_states(client)
 
                     async for message in client.messages:
@@ -491,6 +526,7 @@ class TurziMqttBridge:
             "state": state.state,
             "last_changed": state.last_changed.isoformat(),
             "timestamp": math.floor(datetime.now(tz=timezone.utc).timestamp()),
+            "origin": self._build_origin(state),
         }
 
         # Extract domain-specific attributes
@@ -603,6 +639,26 @@ class TurziMqttBridge:
         metadata = payload.get("metadata", {})
         user_name = metadata.get("user_name", "Unknown")
         user_email = metadata.get("user_email", "")
+        command_id = payload.get("command_id")
+        if command_id is not None and not isinstance(command_id, str):
+            command_id = None
+
+        # v1.1 §2 — dedupe: a repeated command_id is a duplicate delivery,
+        # execute at most once (silently: the original delivery already acked).
+        if command_id and self._is_duplicate_command(command_id):
+            _LOGGER.debug("Ignoring duplicate command %s for %s", command_id, entity_id)
+            return
+
+        # v1.1 §2 — expiry: a late command no longer represents the actor's intent.
+        if self._is_expired(payload):
+            _LOGGER.warning(
+                "Discarded expired command for %s (issued_at=%s)",
+                entity_id, payload.get("issued_at"),
+            )
+            self._log_event("warning", f"Discarded expired command for {entity_id}")
+            if command_id:
+                await self._publish_ack(command_id, "failed", "expired")
+            return
 
         # Guard: reject commands for entities that are not exposed.
         # This prevents the app from controlling entities the user has not
@@ -617,6 +673,8 @@ class TurziMqttBridge:
                 "warning",
                 f"Rejected command for non-exposed entity: {entity_id}",
             )
+            if command_id:
+                await self._publish_ack(command_id, "failed", "entity_not_exposed")
             return
 
         # Special handling for alarm_control_panel
@@ -631,6 +689,8 @@ class TurziMqttBridge:
             service_domain, service_action = command.split(".", 1)
         else:
             _LOGGER.error("Invalid command format (expected domain.action): %s", command)
+            if command_id:
+                await self._publish_ack(command_id, "failed", "unsupported_command")
             return
 
         # Build service data
@@ -657,6 +717,12 @@ class TurziMqttBridge:
         # Small delay before executing the command (matches Node-RED flow)
         await asyncio.sleep(0.1)
 
+        # v1.1 §4 — call with a tracked HA context so the resulting state change
+        # is attributed origin.type="turzi" with this command_id.
+        service_context = Context()
+        if command_id:
+            self._remember_command_context(service_context, command_id)
+
         # Call the HA service
         try:
             await self.hass.services.async_call(
@@ -664,6 +730,7 @@ class TurziMqttBridge:
                 service_action,
                 service_data,
                 blocking=False,
+                context=service_context,
             )
             self._log_event(
                 "info",
@@ -673,6 +740,8 @@ class TurziMqttBridge:
                 "Executed command %s.%s for %s (by %s <%s>)",
                 service_domain, service_action, entity_id, user_name, user_email,
             )
+            if command_id:
+                await self._publish_ack(command_id, "executed")
         except Exception:  # noqa: BLE001
             _LOGGER.exception(
                 "Failed to execute command %s.%s for %s",
@@ -680,6 +749,100 @@ class TurziMqttBridge:
                 service_action,
                 entity_id,
             )
+            if command_id:
+                await self._publish_ack(command_id, "failed", "platform_error")
+
+    # -------------------------------------------------------------------------
+    # Availability & command acks (Protocol v1.1)
+    # -------------------------------------------------------------------------
+
+    async def _publish_availability(self, client: aiomqtt.Client, state: str) -> None:
+        """Publish the retained availability payload (v1.1 §1)."""
+        payload: dict[str, Any] = {
+            "state": state,
+            "timestamp": math.floor(datetime.now(tz=timezone.utc).timestamp()),
+            "protocol_version": PROTOCOL_VERSION,
+        }
+        try:
+            await client.publish(
+                f"house/{self._house_id}/availability",
+                payload=json.dumps(payload),
+                qos=1,
+                retain=True,
+            )
+        except aiomqtt.MqttError:
+            _LOGGER.warning("Failed to publish availability for house '%s'", self._house_id)
+
+    async def _publish_ack(
+        self, command_id: str, status: str, reason: str | None = None
+    ) -> None:
+        """Publish a command acknowledgment (v1.1 §3). No-op without a client."""
+        if self._client is None:
+            return
+        payload = {
+            "command_id": command_id,
+            "status": status,
+            "reason": reason,
+            "timestamp": math.floor(datetime.now(tz=timezone.utc).timestamp()),
+        }
+        try:
+            await self._client.publish(
+                f"house/{self._house_id}/ack/{command_id}",
+                payload=json.dumps(payload),
+                qos=1,
+                retain=False,
+            )
+        except aiomqtt.MqttError:
+            _LOGGER.warning("Failed to publish ack for command %s", command_id)
+
+    def _is_duplicate_command(self, command_id: str) -> bool:
+        """Dedupe check with retention >= the TTL ceiling (v1.1 §2)."""
+        now = asyncio.get_running_loop().time()
+        cutoff = now - DEFAULT_TTL_CEILING_SECONDS
+        self._seen_command_ids = {
+            cid: t for cid, t in self._seen_command_ids.items() if t > cutoff
+        }
+        if command_id in self._seen_command_ids:
+            return True
+        self._seen_command_ids[command_id] = now
+        return False
+
+    @staticmethod
+    def _is_expired(payload: dict) -> bool:
+        """Command expiry check (v1.1 §2): issued_at + clamped TTL, with skew tolerance."""
+        issued_at = payload.get("issued_at")
+        if not isinstance(issued_at, (int, float)):
+            return False  # v1.0 command — no expiry check
+        ttl = payload.get("ttl_seconds")
+        if not isinstance(ttl, (int, float)) or ttl <= 0:
+            ttl = DEFAULT_TTL_CEILING_SECONDS
+        effective_ttl = min(ttl, DEFAULT_TTL_CEILING_SECONDS)
+        now = datetime.now(tz=timezone.utc).timestamp()
+        return now > issued_at + effective_ttl + CLOCK_SKEW_TOLERANCE_SECONDS
+
+    def _remember_command_context(self, ctx: Context, command_id: str) -> None:
+        """Map an HA context to a command_id for origin attribution (v1.1 §4)."""
+        if len(self._command_contexts) > 256:
+            # Drop the oldest half (dicts preserve insertion order)
+            for key in list(self._command_contexts)[:128]:
+                del self._command_contexts[key]
+        self._command_contexts[ctx.id] = command_id
+
+    def _build_origin(self, state: State) -> dict[str, Any]:
+        """Classify what caused a state change from its HA context (v1.1 §4)."""
+        ctx = state.context
+        if ctx is None:
+            return {"type": "unknown"}
+        command_id = self._command_contexts.get(ctx.id) or (
+            self._command_contexts.get(ctx.parent_id) if ctx.parent_id else None
+        )
+        if command_id is not None:
+            return {"type": "turzi", "command_id": command_id}
+        if ctx.parent_id is not None:
+            return {"type": "automation"}
+        if ctx.user_id is not None:
+            return {"type": "core_user"}
+        return {"type": "physical"}
 
     # -------------------------------------------------------------------------
     # Heartbeat (ping/pong)

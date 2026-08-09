@@ -2,6 +2,14 @@
 
 DOMAIN = "turzi_bridge"
 
+# Turzi Protocol v1.1
+PROTOCOL_VERSION = "1.1"
+# Hard ceiling on accepted command TTLs. Local-only by design (PROTOCOL v1.1 §2):
+# the last line of defense against delayed delivery must hold even against a
+# compromised platform, so it is never remotely configurable.
+DEFAULT_TTL_CEILING_SECONDS = 300
+CLOCK_SKEW_TOLERANCE_SECONDS = 10
+
 # Config entry keys (stored in entry.data)
 CONF_BROKER = "broker"
 CONF_PORT = "port"
