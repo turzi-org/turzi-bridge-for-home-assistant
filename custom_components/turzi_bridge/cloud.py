@@ -54,15 +54,23 @@ CAPABILITIES = ["remote_config"]
 
 
 def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any]]:
-    """Build the candidate-entity catalog from the entity registry."""
+    """Build the entity catalog: the bridge's actual publish scope.
+
+    Only entities in the included domains plus individually exposed
+    entities (added via the options flow) are reported — the platform
+    never sees unwanted entities, and everything in the catalog is
+    published (unless locally blocked).
+    """
     exposed = set(entry.options.get(CONF_EXPOSED_ENTITIES, []))
     blocked = set(entry.options.get(CONF_NEVER_EXPOSE, []))
-    selectable = set(SELECTABLE_DOMAINS)
+    included = set(entry.options.get(CONF_INCLUDED_DOMAINS, []))
 
     registry = er.async_get(hass)
     entities: list[dict[str, Any]] = []
     for reg_entry in registry.entities.values():
-        if reg_entry.disabled_by or reg_entry.domain not in selectable:
+        if reg_entry.disabled_by:
+            continue
+        if reg_entry.domain not in included and reg_entry.entity_id not in exposed:
             continue
         state = hass.states.get(reg_entry.entity_id)
         name = (
