@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import aiohttp
 
+from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.loader import async_get_integration
@@ -51,8 +52,7 @@ async def async_enroll(
         "bridge": {
             "type": "home-assistant",
             "bridge_version": integration.version and str(integration.version),
-            "core_version": getattr(hass.config, "version", None)
-            and str(hass.config.version),
+            "core_version": HA_VERSION,
             "protocol_version": PROTOCOL_VERSION,
         },
     }

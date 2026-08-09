@@ -21,10 +21,12 @@ from typing import Any
 
 import aiohttp
 
+from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.loader import async_get_integration
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -147,12 +149,15 @@ class TurziCloudSync:
             return
 
         entities = build_catalog(self.hass, self.entry)
+        integration = await async_get_integration(self.hass, DOMAIN)
         payload = {
             "catalog_hash": "sha256:"
             + hashlib.sha256(
                 json.dumps(entities, sort_keys=True).encode()
             ).hexdigest(),
             "protocol_version": PROTOCOL_VERSION,
+            "bridge_version": integration.version and str(integration.version),
+            "core_version": HA_VERSION,
             "capabilities": CAPABILITIES,
             "applied_config_revision": self.entry.options.get(CONF_CONFIG_REVISION),
             "entities": entities,
