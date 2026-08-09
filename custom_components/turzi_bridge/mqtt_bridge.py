@@ -79,6 +79,7 @@ class TurziMqttBridge:
         exposed_entities: list[str],
         included_domains: list[str],
         auto_add_new: bool,
+        never_expose: list[str] | None = None,
     ) -> None:
         """Initialize the MQTT bridge."""
         self.hass = hass
@@ -92,6 +93,8 @@ class TurziMqttBridge:
         self._exposed_entities: set[str] = set(exposed_entities)
         self._included_domains: set[str] = set(included_domains)
         self._auto_add_new: bool = auto_add_new
+        # Privacy floor: never published, in any mode; wins over everything.
+        self._never_expose: set[str] = set(never_expose or [])
 
         # Internal state
         self._client: aiomqtt.Client | None = None
@@ -135,6 +138,7 @@ class TurziMqttBridge:
             exposed_entities=entry.options.get(CONF_EXPOSED_ENTITIES, []),
             included_domains=entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS),
             auto_add_new=entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
+            never_expose=entry.options.get(CONF_NEVER_EXPOSE, []),
         )
 
     # -------------------------------------------------------------------------
@@ -142,7 +146,9 @@ class TurziMqttBridge:
     # -------------------------------------------------------------------------
 
     def should_expose(self, entity_id: str) -> bool:
-        """Return True if entity_id is in the exposed set."""
+        """Return True if entity_id is exposed and not privacy-blocked."""
+        if entity_id in self._never_expose:
+            return False
         return entity_id in self._exposed_entities
 
     def get_status(self) -> dict:
@@ -176,13 +182,19 @@ class TurziMqttBridge:
         exposed_entities: list[str],
         included_domains: list[str],
         auto_add_new: bool,
+        never_expose: list[str] | None = None,
     ) -> None:
-        """Apply updated config and sync MQTT state accordingly."""
+        """Apply updated config and sync MQTT state accordingly.
+
+        Entities leaving the effective exposed set (including newly
+        privacy-blocked ones) get their retained state cleaned up.
+        """
         old_exposed = set(self._published_entities)
 
         self._exposed_entities = set(exposed_entities)
         self._included_domains = set(included_domains)
         self._auto_add_new = auto_add_new
+        self._never_expose = set(never_expose or [])
 
         new_exposed: set[str] = {
             s.entity_id
@@ -316,6 +328,8 @@ class TurziMqttBridge:
                 # Auto-add new entity if its domain is in included_domains
                 domain = entity_id.split(".")[0]
                 if domain not in self._included_domains:
+                    return
+                if entity_id in self._never_expose:
                     return
                 reg = er.async_get(self.hass)
                 reg_entry = reg.async_get(entity_id)

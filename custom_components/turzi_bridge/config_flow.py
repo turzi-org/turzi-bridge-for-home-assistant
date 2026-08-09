@@ -9,7 +9,21 @@ from typing import Any
 import aiomqtt
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .const import (
     CONF_API_BASE_URL,
@@ -26,10 +40,12 @@ from .const import (
     CONF_USE_TLS,
     CONF_USERNAME,
     DEFAULT_AUTO_ADD_NEW,
+    CONF_NEVER_EXPOSE,
     DEFAULT_CLOUD_API_BASE_URL,
     DEFAULT_INCLUDED_DOMAINS,
     DEFAULT_PORT,
     DOMAIN,
+    SELECTABLE_DOMAINS,
 )
 from .enrollment import EnrollmentError, async_enroll
 from homeassistant.helpers import entity_registry as er
@@ -231,3 +247,68 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=_build_broker_schema(defaults=dict(entry.data)),
             errors=errors,
         )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> TurziOptionsFlow:
+        """Create the options flow."""
+        return TurziOptionsFlow()
+
+
+class TurziOptionsFlow(OptionsFlow):
+    """Options: exposure management and the privacy blocklist.
+
+    Replaces the removed sidebar panel. The privacy blocklist applies in
+    every mode and cannot be overridden remotely (PROTOCOL.md, Exposure
+    Configuration): entities listed there are never published, even if a
+    future platform exposure revision includes them.
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage exposure and privacy options."""
+        if user_input is not None:
+            return self.async_create_entry(
+                data={
+                    CONF_INCLUDED_DOMAINS: user_input.get(
+                        CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
+                    ),
+                    CONF_EXPOSED_ENTITIES: user_input.get(CONF_EXPOSED_ENTITIES, []),
+                    CONF_AUTO_ADD_NEW: user_input.get(
+                        CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW
+                    ),
+                    CONF_NEVER_EXPOSE: user_input.get(CONF_NEVER_EXPOSE, []),
+                }
+            )
+
+        options = self.config_entry.options
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_INCLUDED_DOMAINS,
+                    default=options.get(
+                        CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
+                    ),
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=SELECTABLE_DOMAINS,
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(
+                    CONF_EXPOSED_ENTITIES,
+                    default=options.get(CONF_EXPOSED_ENTITIES, []),
+                ): EntitySelector(EntitySelectorConfig(multiple=True)),
+                vol.Required(
+                    CONF_AUTO_ADD_NEW,
+                    default=options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
+                ): BooleanSelector(),
+                vol.Required(
+                    CONF_NEVER_EXPOSE,
+                    default=options.get(CONF_NEVER_EXPOSE, []),
+                ): EntitySelector(EntitySelectorConfig(multiple=True)),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

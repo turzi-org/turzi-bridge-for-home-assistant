@@ -27,7 +27,7 @@
 - **Re-publishes** all entity states on demand (app reconnect or manual reload)
 - **Cleans up** MQTT retained messages when entities are removed from the exposed set
 
-All entity exposure is managed through a **custom sidebar panel** — no need to touch HA labels, the options flow, or YAML.
+Setup takes a single **enrollment token** from the Turzi Community Manager (or manual broker details for self-hosted mode). Entity exposure and the privacy blocklist are managed in the integration's native **options flow** — no custom panels, no YAML.
 
 > The connector implements the **MQTT transport binding** of the Turzi Protocol. See [PROTOCOL.md](PROTOCOL.md) for the full specification.
 

@@ -14,14 +14,13 @@ from .const import (
     CONF_AUTO_ADD_NEW,
     CONF_EXPOSED_ENTITIES,
     CONF_INCLUDED_DOMAINS,
+    CONF_NEVER_EXPOSE,
     DEFAULT_AUTO_ADD_NEW,
     DEFAULT_INCLUDED_DOMAINS,
     DOMAIN,
     SIGNAL_CONFIG_UPDATED,
 )
 from .mqtt_bridge import TurziMqttBridge
-from .panel import async_register_panel, async_unregister_panel
-from .websockets import async_register_websockets
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,9 +46,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
 
     async_at_started(hass, _start_bridge)
 
-    await async_register_panel(hass)
-    await async_register_websockets(hass)
-
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     _LOGGER.info(
@@ -65,9 +61,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bo
 
     if bridge:
         await bridge.async_stop()
-
-    if not hass.data.get(DOMAIN):
-        async_unregister_panel(hass)
 
     if DOMAIN in hass.data and not hass.data[DOMAIN]:
         hass.data.pop(DOMAIN)
@@ -128,9 +121,9 @@ async def _async_options_updated(hass: HomeAssistant, entry: TurziConfigEntry) -
         exposed_entities=entry.options.get(CONF_EXPOSED_ENTITIES, []),
         included_domains=entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS),
         auto_add_new=entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
+        never_expose=entry.options.get(CONF_NEVER_EXPOSE, []),
     )
 
-    # Notify the panel to refresh
     async_dispatcher_send(hass, SIGNAL_CONFIG_UPDATED)
 
     _LOGGER.info(

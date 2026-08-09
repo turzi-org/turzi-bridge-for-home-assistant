@@ -29,6 +29,10 @@ DEFAULT_CLOUD_API_BASE_URL = "https://api.turzi.cloud/api/v2"
 CONF_INCLUDED_DOMAINS = "included_domains"
 CONF_EXPOSED_ENTITIES = "exposed_entities"
 CONF_AUTO_ADD_NEW = "auto_add_new"
+# Privacy floor: entities that must NEVER be published, in any mode.
+# Local-only by design — remote exposure configuration cannot override it
+# (PROTOCOL.md, Exposure Configuration). Survives re-enrollment.
+CONF_NEVER_EXPOSE = "never_expose"
 
 # Default port
 DEFAULT_PORT = 1883
@@ -46,21 +50,10 @@ DEFAULT_INCLUDED_DOMAINS = [
     "group",
 ]
 
-# Panel constants
-PANEL_URL = "/api/turzi_bridge/panel"
-PANEL_TITLE = "turzi Bridge"
-PANEL_ICON = "mdi:alpha-t-circle"
-PANEL_NAME = "turzi-panel"
-PANEL_FOLDER = "frontend"
-PANEL_FILENAME = "turzi-panel.js"
-CUSTOM_COMPONENTS = "custom_components"
-INTEGRATION_FOLDER = "turzi_bridge"
-
-# Dispatcher signal for live panel updates
+# Dispatcher signal for config updates (diagnostics/status consumers)
 SIGNAL_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 
-# All selectable domains in the panel domain picker (auto-expose candidates).
-# Keep this in sync with ALL_DOMAINS in frontend/turzi-panel.js.
+# All selectable domains in the options-flow domain picker (auto-expose candidates).
 SELECTABLE_DOMAINS = [
     "alarm_control_panel",
     "automation",

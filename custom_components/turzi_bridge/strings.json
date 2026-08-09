@@ -73,5 +73,25 @@
       "already_configured": "This house ID is already configured.",
       "reconfigure_successful": "Broker settings updated successfully."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Exposure & privacy",
+        "description": "Choose which entities are published to the Turzi app. Entities in the privacy blocklist are never published, in any mode — not even when exposure is managed remotely.",
+        "data": {
+          "included_domains": "Included domains",
+          "exposed_entities": "Exposed entities",
+          "auto_add_new": "Automatically expose new entities",
+          "never_expose": "Privacy blocklist (never expose)"
+        },
+        "data_description": {
+          "included_domains": "Domains whose entities can be exposed.",
+          "exposed_entities": "The entities currently published to the app.",
+          "auto_add_new": "New entities in included domains are exposed automatically.",
+          "never_expose": "These entities are never published, overriding every other setting. Survives re-enrollment."
+        }
+      }
+    }
   }
 }
