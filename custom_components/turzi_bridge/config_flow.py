@@ -26,6 +26,8 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    NOISY_DOMAINS,
+    SELECTABLE_DOMAINS,
     CONF_API_BASE_URL,
     CONF_AUTO_ADD_NEW,
     CONF_BRIDGE_TOKEN,
@@ -45,7 +47,6 @@ from .const import (
     DEFAULT_INCLUDED_DOMAINS,
     DEFAULT_PORT,
     DOMAIN,
-    SELECTABLE_DOMAINS,
 )
 from .enrollment import EnrollmentError, async_enroll
 from homeassistant.helpers import entity_registry as er
@@ -93,19 +94,29 @@ def _build_broker_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def _default_options(hass) -> dict[str, Any]:
-    """Seed exposure options from the entity registry (manual mode)."""
+def _default_options(hass, cloud: bool = False) -> dict[str, Any]:
+    """Seed exposure options from the entity registry.
+
+    Cloud mode publishes pretty much everything except the noisy domains
+    (NOISY_DOMAINS) — the platform then decides app visibility, and adds
+    individual noisy-domain entities via exposure revisions when needed.
+    """
     registry = er.async_get(hass)
-    domain_set = set(DEFAULT_INCLUDED_DOMAINS)
+    included = (
+        [d for d in SELECTABLE_DOMAINS if d not in NOISY_DOMAINS]
+        if cloud
+        else DEFAULT_INCLUDED_DOMAINS
+    )
+    domain_set = set(included)
     exposed = [
         reg_entry.entity_id
         for reg_entry in registry.entities.values()
         if not reg_entry.disabled_by and reg_entry.domain in domain_set
     ]
     return {
-        CONF_INCLUDED_DOMAINS: DEFAULT_INCLUDED_DOMAINS,
+        CONF_INCLUDED_DOMAINS: included,
         CONF_EXPOSED_ENTITIES: exposed,
-        CONF_AUTO_ADD_NEW: DEFAULT_AUTO_ADD_NEW,
+        CONF_AUTO_ADD_NEW: True if cloud else DEFAULT_AUTO_ADD_NEW,
     }
 
 
@@ -158,7 +169,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_BRIDGE_TOKEN: result.bridge_token,
                         CONF_API_BASE_URL: base_url,
                     },
-                    options=_default_options(self.hass),
+                    options=_default_options(self.hass, cloud=True),
                 )
 
         return self.async_show_form(

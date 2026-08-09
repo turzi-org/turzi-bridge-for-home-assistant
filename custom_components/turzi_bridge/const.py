@@ -55,6 +55,11 @@ DEFAULT_INCLUDED_DOMAINS = [
 # Dispatcher signal for config updates (diagnostics/status consumers)
 SIGNAL_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 
+# Domains that can carry many unwanted entities: excluded from default
+# cloud exposure; individual entities are published when the platform
+# includes them in an exposure revision (made visible in TCM).
+NOISY_DOMAINS = ["sensor", "binary_sensor", "automation", "device_tracker", "person"]
+
 # All selectable domains in the options-flow domain picker (auto-expose candidates).
 SELECTABLE_DOMAINS = [
     "alarm_control_panel",

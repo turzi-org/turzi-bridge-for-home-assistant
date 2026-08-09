@@ -69,6 +69,7 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
             or (state.name if state else None)
             or reg_entry.entity_id
         )
+        created_at = getattr(reg_entry, "created_at", None)
         entities.append(
             {
                 "id": reg_entry.entity_id,
@@ -82,6 +83,8 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
                 "exposed": reg_entry.entity_id in exposed
                 and reg_entry.entity_id not in blocked,
                 "locally_blocked": reg_entry.entity_id in blocked,
+                "last_seen": state.last_updated.isoformat() if state else None,
+                "added_on": created_at.isoformat() if created_at else None,
             }
         )
     entities.sort(key=lambda e: e["id"])
