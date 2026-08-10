@@ -4,6 +4,7 @@
 **Status:** Production
 
 > **v1.1 (2026-08-08)** adds — all additively (a v1.0 core remains valid; consumers must tolerate the absence of every v1.1 feature): availability (LWT), command identifiers with TTL/expiry, command acknowledgments, origin attribution on state updates, the exposure-configuration topic, and the deployment-modes appendix. The v1.0 heartbeat is deprecated in favor of availability.
+> *Amended 2026-08-09* with informative guidance from the first production-shaped deployment: client practice for acks, consumer guidance for event-sourcing the state stream, attributes as the capability surface, and the deployment scope of `house_id`.
 
 The Turzi Protocol defines a standardized communication interface between the **Turzi mobile app** and any **smart home core** (Home Assistant, Hubitat, custom implementations). It is transport-agnostic — the protocol core defines what is communicated, while transport bindings define how messages travel.
 
@@ -15,6 +16,7 @@ The Turzi Protocol defines a standardized communication interface between the **
    - [Design Principles](#design-principles)
    - [State Update Payload](#state-update-payload)
    - [Origin Attribution](#origin-attribution)
+   - [Consumer Guidance: Event-Sourcing the State Stream](#consumer-guidance-event-sourcing-the-state-stream-informative)
    - [Command Payload](#command-payload)
    - [Command Acknowledgment](#command-acknowledgment)
    - [Availability](#availability)
@@ -35,7 +37,7 @@ The Turzi Protocol defines a standardized communication interface between the **
 
 1. **Platform-agnostic domains** — Domain names (e.g., `light`, `climate`, `cover`) are abstract device categories, not tied to any specific smart home platform. Connector implementations map their platform's device types to these standard domains.
 
-2. **Standardized attributes** — Each domain defines a fixed set of attributes. Connectors extract available attributes from their platform and include them in state payloads.
+2. **Standardized attributes** — Each domain defines a fixed set of attributes. Connectors extract available attributes from their platform and include them in state payloads. Attributes double as the **capability surface**: option lists and ranges (`hvac_modes`, `min_temp`/`max_temp`, `preset_modes`, `code_arm_required`, …) tell a UI exactly which controls each device supports. Consumers SHOULD derive controls from published attributes rather than assuming domain-wide capabilities; connectors SHOULD therefore publish capability attributes for controllable domains.
 
 3. **Backward compatibility** — Once published, domain attributes are never removed or renamed. New attributes may be added in future versions.
 
@@ -84,6 +86,15 @@ Sent by the smart home core whenever an entity's state changes.
 **Mapping guidance for Home Assistant connectors:** a state change whose context has a `parent_id` → `automation`; a `user_id` → `core_user` (or `turzi` if the connector's own service call produced it — connectors SHOULD track the context ids of calls they make and tag those changes `turzi` with the originating `command_id`); neither → `physical`.
 
 Consumers MUST tolerate a missing `origin` (v1.0 cores) and treat it as `unknown`.
+
+#### Consumer Guidance: Event-Sourcing the State Stream *(informative)*
+
+A platform building an audit ledger from this stream must treat it as at-least-once with replays, because that is what it is:
+
+- **Idempotency is mandatory.** Retained states replay on *every* consumer reconnect, and QoS 1 re-delivers. Dedupe on `(house, entity, last_changed, event kind)` — enforced by a uniqueness constraint at the storage layer, not by consumer memory.
+- **Old-state is consumer memory.** The stream carries the new state; "old → new" derivation lives in the consumer and resets on restart. Dedupe must never depend on the derived old state.
+- **Availability ordering.** The `online` payload carries a core-clock timestamp; the LWT `offline` is broker-emitted without one. Mixing the two clocks can invert orderings within a second — order availability events by **receipt time**, not payload time.
+- **Resolve attribution at read time.** The state echo routinely arrives *before* a command's publisher has persisted its attribution record (the echo is ~tens of ms; the write is a database round-trip). Ingest-time actor resolution is best-effort; the authoritative join from `origin.command_id` to the actor belongs at query time.
 
 ### Command Payload
 
@@ -173,6 +184,8 @@ When the alarm mode mapping is used, the original `parameters` object is discard
 | Nothing within timeout (suggest 5 s) | Command or core lost | Check availability; show "home unreachable" if offline |
 
 The ack reports *invocation*, not physical outcome. Observed physical outcome remains the state stream's job; the two are correlated via `origin.command_id`.
+
+**Client practice** *(informative)*: invocation acks are fast on a healthy link (tens of milliseconds core-side), but a UI that disables its control until the ack round-trips still feels broken. The pattern that works: render the commanded state **optimistically at submit time**, keep the control enabled, reconcile silently when the state echo arrives (identifiable via `origin.command_id`), revert with an explanation on `failed`, and fall back to retained broker truth after a bounded window (~8 s) if no echo comes — `executed` without an echo is the no-op case, and truth must win over the projection. Transitional states (`locking`, `opening`, `arming`) are the honest optimistic projection for domains whose outcome takes time.
 
 ### Availability
 
@@ -484,7 +497,7 @@ The MQTT binding maps Turzi Protocol messages to MQTT topics and settings.
 
 #### Topic Structure
 
-All topics are prefixed with `house/{house_id}/`, where `house_id` is a unique identifier for the smart home instance.
+All topics are prefixed with `house/{house_id}/`, where `house_id` is a unique identifier for the smart home instance. The protocol is agnostic about what a "house" is — a dwelling, a building, or an entire community can be one instance. (Turzi Cloud, for example, deploys one core per community; which resident sees which devices is a platform concern, not a protocol one.)
 
 | Direction | Topic Pattern | QoS | Retain | Message Type |
 |-----------|---------------|-----|--------|-------------|
