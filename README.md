@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  A custom Home Assistant integration that bridges your smart home with the <strong>Turzi mobile app</strong> via MQTT.
+  The official Home Assistant connector for the <strong>Turzi Protocol</strong> — live state out, authorized commands in, full audit attribution.
 </p>
 
 <p align="center">
@@ -19,17 +19,14 @@
 
 ## Overview
 
-**turzi Bridge for Home Assistant** is the official HA bridge for the [Turzi Protocol](PROTOCOL.md). It connects your Home Assistant instance to the Turzi mobile app by maintaining a live MQTT bridge that:
+**turzi Bridge** connects a Home Assistant instance to the Turzi platform (or any Turzi Protocol consumer) over MQTT, implementing **Turzi Protocol v1.1** ([PROTOCOL.md](PROTOCOL.md)):
 
-- **Publishes** real-time entity state changes from HA to the app
-- **Receives** commands from the app and calls the corresponding HA services
-- **Responds** to heartbeat pings to confirm connectivity
-- **Re-publishes** all entity states on demand (app reconnect or manual reload)
-- **Cleans up** MQTT retained messages when entities are removed from the exposed set
+- **State out** — every exposed entity's state, retained, with domain attributes (including the capability data — mode lists, ranges — that lets remote UIs render exactly the controls each device supports) and **origin attribution**: each state change is classified as commanded (`turzi`, with its `command_id`), HA-UI (`core_user`), `automation`, or `physical` (wall button, remote). This is what makes a complete audit trail possible downstream.
+- **Commands in** — incoming commands are validated, **deduplicated** by `command_id`, **expired** if delivered late (TTL with a local 300 s ceiling — a stale unlock must never execute), translated to HA service calls, and **acknowledged** (`executed` / `failed` with reason).
+- **Availability** — a retained LWT topic announces online/offline instantly, including ungraceful disconnects. No polling, no heartbeats.
+- **Catalog up (cloud mode)** — the bridge registers its entity inventory with the Turzi platform over HTTPS (never over MQTT — the catalog lists unexposed entities and must not be readable by house clients).
 
-Setup takes a single **enrollment token** from the Turzi Community Manager (or manual broker details for self-hosted mode). Entity exposure and the privacy blocklist are managed in the integration's native **options flow** — no custom panels, no YAML.
-
-> The connector implements the **MQTT transport binding** of the Turzi Protocol. See [PROTOCOL.md](PROTOCOL.md) for the full specification.
+One instance serves one `house/{house_id}/` namespace. A "house" can be a single dwelling or an entire building — Turzi Cloud runs one bridge per community.
 
 ---
 
@@ -38,7 +35,7 @@ Setup takes a single **enrollment token** from the Turzi Community Manager (or m
 | Requirement | Version |
 |---|---|
 | Home Assistant | ≥ 2024.4.0 |
-| External MQTT broker | Any (Mosquitto, EMQX, HiveMQ, etc.) |
+| MQTT broker | Turzi Cloud provisions one automatically; self-hosted mode works with any broker (Mosquitto, EMQX, …) |
 | Python dependency | `aiomqtt >= 2.0.0` (installed automatically) |
 
 ---
@@ -54,238 +51,126 @@ Setup takes a single **enrollment token** from the Turzi Community Manager (or m
 
 ### Manual
 
-1. Copy the `custom_components/turzi_bridge/` folder into your HA `config/custom_components/` directory
+1. Copy `custom_components/turzi_bridge/` into your HA `config/custom_components/` directory
 2. Restart Home Assistant
 
 ---
 
-## Configuration
+## Setup
 
-### Initial Setup
+**Settings → Devices & Services → Add Integration → turzi Bridge.** The flow offers two modes:
 
-1. Go to **Settings → Devices & Services → Add Integration**
-2. Search for **turzi Bridge**
-3. Fill in your MQTT broker details:
+### Connect to Turzi Cloud (enrollment token)
+
+Paste the single-use enrollment code (`TRZ-XXXX-XXXX-XXXX`) generated in the Turzi Community Manager. The bridge provisions itself: it exchanges the token for its house id, its own broker credentials, and its API token — no broker details to type, no secrets to copy. It then connects, registers its catalog, and the Community Manager flips to "bridge online".
+
+- The token is single-use and expires (48 h by default). If it was already used or expired, generate a new one in the Community Manager.
+- The **API base URL** field only matters when enrolling against a self-hosted Turzi backend.
+- If the platform later unlinks this bridge, a **repair issue** appears in HA prompting re-enrollment; the bridge stops reconnecting on its own.
+
+### Self-hosted / manual broker
+
+For fully local operation against your own broker — no Turzi platform involved:
 
 | Field | Description | Default |
 |---|---|---|
-| **Broker hostname** | IP address or hostname of your MQTT broker | — |
-| **Port** | MQTT broker port | `1883` |
-| **Username** | Optional MQTT authentication username | — |
-| **Password** | Optional MQTT authentication password | — |
-| **House ID** | Unique identifier for this home (used as the MQTT topic prefix) | — |
-| **Use TLS** | Enable TLS encryption for the MQTT connection | `false` |
+| **Broker hostname** | IP or hostname of your MQTT broker | — |
+| **Port** | Broker port | `1883` |
+| **Username / Password** | Optional MQTT authentication | — |
+| **House ID** | Topic namespace (`house/{house_id}/…`) — unique per installation | — |
+| **Use TLS** | TLS for the MQTT connection | `false` |
 
-> The **House ID** is a free-form string (e.g., `my_house`, `apartment_4b`). All MQTT topics are scoped under `house/{house_id}/` — it must be unique per installation.
-
-The integration tests the connection to the MQTT broker before saving. If the connection fails, an error is shown and no entry is created.
-
-### Reconfiguration
-
-To update broker settings after initial setup, go to **Settings → Devices & Services**, find the Turzi entry, and select **Reconfigure**.
+The connection is tested before the entry is created. Broker settings can be changed later via **Reconfigure** on the integration entry.
 
 ---
 
-## Turzi Panel
+## Exposure & privacy
 
-After setup, a **Turzi** entry (🅣 icon) appears in the HA sidebar. This is the primary UI for all entity management — there is no separate options flow for exposure settings.
+What gets published is decided **here, at the bridge**, in the integration's options flow (**Configure** on the integration entry) — no custom panels, no YAML:
 
-The panel requires admin access and has two tabs: **Entities** and **Status**.
-
----
-
-### Entities Tab
-
-The Entities tab combines exposure management and domain settings in a single screen.
-
-#### Exposure Settings (top section)
-
-| Control | What it does |
+| Setting | Effect |
 |---|---|
-| **Auto-expose new entities** toggle | When ON, newly discovered entities from included domains are automatically exposed |
-| **Included domains** search box | Type to search and add domains whose entities should be auto-exposed |
-| **Domain tags** (× to remove) | Currently included domains; click × to remove a domain |
-| **Select all / Clear all** | Adds or removes all available domains at once |
+| **Included domains** | ALL entities in these domains are published |
+| **Manually exposed entities** | Individual entities published *in addition* to the included domains (e.g. one specific sensor) |
+| **Automatically expose new entities** | New entities in included domains publish without further action |
+| **Privacy blocklist (never expose)** | These entities are **never** published — overriding every other setting, in every mode, surviving re-enrollment |
 
-> Changes to included domains and the auto-expose toggle **save automatically** after a 1-second debounce. Adding a domain immediately exposes all its existing entities.
+Effective exposure = **included domains ∪ manually exposed − privacy blocklist**.
 
-#### Entity List
+Cloud enrollment defaults to all controllable domains, deliberately excluding the noisy ones (`sensor`, `binary_sensor`, `automation`, `device_tracker`, `person`) so the platform's device list stays a device list rather than a telemetry feed — add specific sensors via *manually exposed entities* when they matter.
 
-| Control | What it does |
-|---|---|
-| **Search bar** | Filter by entity name or entity ID |
-| **Domain filter chips** | Narrow the list to a single domain (shows entity count) |
-| **Row checkbox** (left) | Select entity for batch operations |
-| **Toggle switch** (right) | Expose or exclude this entity individually |
-| **Select all visible** | Select all entities matching the current search/filter |
-| **Batch bar** | Appears when entities are selected — Expose / Exclude / Clear |
-
-#### Status Badges
-
-| Badge | Meaning |
-|---|---|
-| `Auto Exposed` (orange) | Exposed because its domain is in the included domains list |
-| `Manually Exposed` (green) | Exposed explicitly, outside of any included domain |
-| `User Excluded` (amber) | In an included domain, but manually switched off |
-| *(no badge)* | Not exposed, and not in any included domain |
-
-Toggling a switch takes effect immediately — the entity's MQTT state is published or cleared in real time without any restart.
+Changes apply immediately: entities leaving the exposed set get their retained state cleared (clients drop them in real time), entities entering it publish their current state.
 
 ---
 
-### Status Tab
+## How it works on the wire
 
-Shows the current state of the MQTT connection:
+The full specification is [PROTOCOL.md](PROTOCOL.md) — payloads, semantics, and client guidance. The shape of it:
 
-- **Connection status** — Connected / Reconnecting (animated) / Disconnected
-- **Broker details** — host, port, TLS, house ID
-- **Statistics** — how many entities are exposed and how many are currently published
-- **Reconnect counter** — how many times the bridge has reconnected since startup
-- **Timestamps** — last connected and last disconnected
-- **Activity log** — last 50 events (connections, disconnections, commands received from the app), displayed in reverse-chronological order and **updated in real time** — no page reload needed
+| Direction | Topic | Retain |
+|---|---|---|
+| Bridge → clients | `house/{id}/state/{domain}/{entity_slug}` | ✅ |
+| Bridge → clients | `house/{id}/availability` | ✅ |
+| Bridge → clients | `house/{id}/ack/{command_id}` | ❌ |
+| Publisher → bridge | `house/{id}/command/{domain}/{entity_slug}` | ❌ |
+| Platform → bridge | `house/{id}/config/exposure` | ✅ |
+| Publisher → bridge | `house/{id}/app/command/reload` | ❌ |
 
----
+Who may publish commands is **deployment policy**, not protocol: in Turzi Cloud, apps hold subscribe-only credentials and every command flows through the platform API (authenticated, authorized, audited) before reaching the broker; in self-hosted mode, clients publish directly. The bridge doesn't care — it executes any authorized command arriving on its command topics, enforcing expiry, the TTL ceiling, and deduplication either way.
 
-## App Integration Guide
-
-If you are developing the Turzi mobile app or a custom client, follow these guidelines to ensure robust, real-time communication with the Home Assistant bridge.
-
-### 1. Connection & Session
-**Connect with a Clean Session (`clean_session=True`).** 
-Because the HA bridge publishes all entity states as retained messages, a clean session ensures that upon connection, the app instantly receives exactly one snapshot of the absolute latest state for every exposed entity. Using `clean_session=False` will flood the app with a queue of outdated historical changes that occurred while the phone was locked.
-
-### 2. Quality of Service (QoS) & Topics
-
-All topics are prefixed with `house/{house_id}/`. To achieve exactly-once delivery for commands and ensure no live state updates are missed, the app's MQTT client MUST use the following QoS levels:
-
-| Direction | Action | Topic | QoS | Retain | Purpose |
-|---|---|---|---|---|---|
-| HA → App | **Subscribe** | `house/{id}/state/#` | **1** | ✅ | Live entity state updates |
-| HA → App | **Subscribe** | `house/{id}/app/state/heartbeat` | **0** | ❌ | Heartbeat pong |
-| App → HA | **Publish** | `house/{id}/command/{domain}/{entity_slug}` | **2** | ❌ | Control command |
-| App → HA | **Publish** | `house/{id}/app/command/heartbeat` | **0** | ❌ | Heartbeat ping |
-| App → HA | **Publish** | `house/{id}/app/command/reload` | **1** | ❌ | Full state reload |
-
-> *Note: For QoS 2 to work correctly on commands, both the publisher (App) and subscriber (HA bridge) must use QoS 2. If the app publishes at QoS 1, delivery will be downgraded to QoS 1.*
-
-### 3. Handling State Updates (HA → App)
-
-Subscribe to `house/{id}/state/#` immediately after connecting. The broker will instantly push the retained state for every exposed entity. 
-
-**Payload format:**
-```json
-{
-  "state": "on",
-  "last_changed": "2024-01-15T14:30:00.000000+00:00",
-  "timestamp": 1705325400,
-  "attributes": {
-    "brightness": 200,
-    "color_temp_kelvin": 3500
-  }
-}
-```
-*   The `attributes` field is only included when at least one value is non-null.
-*   **Entity Deletions:** If an entity is removed from the exposed list in HA, the bridge publishes an **empty payload** to its topic. The app should interpret an empty payload as an instruction to delete that entity from the UI.
-
-### 4. Sending Commands (App → HA)
-
-Send commands to the specific entity topic.
-
-**Payload format:**
-```json
-{
-  "command": "light.turn_on",
-  "parameters": { "brightness": 255 },
-  "metadata": {
-    "user_name": "John Doe",
-    "user_email": "john@example.com"
-  }
-}
-```
-*   The `command` field must contain the exact HA service (e.g., `light.turn_on`, `cover.set_cover_position`).
-*   Idempotent commands (e.g., `turn_on`, `turn_off`) are strongly preferred over non-idempotent ones (e.g., `toggle`) to prevent unexpected behavior during network retries.
-*   The `metadata` is recorded in the HA Logbook for auditing.
-
-### 5. Heartbeats
-
-To verify the bridge is actively running, the app can publish a ping. The bridge will respond immediately.
-*   **Ping** (App publishes): `{ "state": "ping" }`
-*   **Pong** (App receives): `{ "state": "pong", "timestamp": "2024-01-15T14:30:00Z" }`
+On reconnect (exponential backoff, 5 s → 60 s cap) the bridge re-registers its availability LWT and re-publishes all exposed states; in cloud mode it also refreshes its catalog registration when the inventory changed.
 
 ---
 
-## Reconnection Behaviour
+## Supported domains
 
-The bridge reconnects automatically using **exponential backoff**:
+All selectable domains and their published attributes are specified in [PROTOCOL.md §2](PROTOCOL.md#2-domain-attribute-specification). Highlights:
 
-| Attempt | Delay |
-|---|---|
-| 1st | 5 s |
-| 2nd | 10 s |
-| 3rd | 20 s |
-| 4th | 40 s |
-| 5th+ | 60 s (max) |
-
-All exposed entity states are re-published on every successful reconnect.
-
----
-
-## Supported Domains & Attributes
-
-| Domain | Key Attributes |
+| Domain | Key attributes |
 |---|---|
 | `light` | `brightness`, `color_mode`, `color_temp_kelvin`, `rgb_color`, `effect` |
-| `climate` | `target_temperature`, `current_temperature`, `hvac_action`, `hvac_modes`, `fan_mode`, `preset_mode` |
+| `climate` | `target_temperature`, `current_temperature`, `hvac_action`, `hvac_modes`, `min_temp`/`max_temp`, `preset_modes`, `fan_modes` |
 | `cover` | `current_position`, `current_tilt_position`, `device_class` |
 | `alarm_control_panel` | `open_sensors`, `delay`, `code_arm_required`, `code_format`, `changed_by` |
 | `fan` | `percentage`, `preset_mode`, `direction`, `oscillating` |
-| `media_player` | `volume_level`, `is_volume_muted`, `media_title`, `media_artist`, `source` |
-| `sensor` | `unit_of_measurement`, `device_class` |
-| `binary_sensor` | `device_class` |
-| `lock` | *(state only)* |
-| `vacuum` | `battery_level`, `fan_speed` |
-| `camera` | `is_recording`, `is_streaming` |
-| `weather` | `temperature`, `humidity`, `pressure`, `wind_speed` |
-| `person` / `device_tracker` | `latitude`, `longitude`, `gps_accuracy` |
-| `switch`, `group`, `scene`, `script`, `button`, `input_boolean` | *(state only)* |
+| `media_player` | `volume_level`, `media_title`, `media_artist`, `source`, `source_list` |
+| `lock` | *(state only: `locked`, `unlocked`, `locking`, `unlocking`, `jammed`)* |
+| `vacuum` | `battery_level`, `fan_speed`, `fan_speed_list` |
+| `humidifier` | `current_humidity`, `target_humidity`, `min_humidity`/`max_humidity` |
+| `sensor` / `binary_sensor` | `unit_of_measurement`, `device_class` |
+| `switch`, `scene`, `script`, `button`, `input_boolean` | *(state only)* |
 
 ---
 
 ## Troubleshooting
 
-### Cannot connect to MQTT broker
+**Enrollment fails**
+- `token_unknown` / `token_expired_or_used`: generate a fresh code in the Community Manager — codes are single-use and expire after 48 h.
+- Verify the HA host can reach the Turzi API over HTTPS (and your custom base URL if self-hosted).
 
-- Verify the broker is reachable from the HA host
-- Double-check port, username, and password
-- If using TLS, ensure the broker's certificate is trusted
-- Check HA logs: **Settings → System → Logs**, filter by `turzi`
-- Check the **Status tab** in the Turzi panel for connection events
+**Bridge shows offline in the Community Manager**
+- Check HA logs (**Settings → System → Logs**, filter `turzi`) for MQTT connection errors.
+- If credentials were rotated or the bridge unlinked platform-side, a repair issue in HA will say so — re-enroll from there.
 
-### Entities not appearing in the app
+**Entities not appearing in the app / Community Manager**
+- Open the integration's **Configure** dialog: is the entity's domain included, or the entity manually exposed? Is it on the privacy blocklist?
+- Remember cloud defaults exclude sensor-class domains — add specific sensors manually.
+- In the Community Manager, a published device still needs to be **placed in a space** to be visible to residents.
 
-- Open the Turzi panel → Entities tab and confirm the entity shows as **Auto Exposed** or **Manually Exposed**
-- If the toggle is off, switch it on — MQTT publish is immediate
-- Trigger a reload from the app or by publishing `{ "command": "reload" }` to `house/{id}/app/command/reload`
-
-### Commands not executing
-
-- Verify the topic format: `house/{house_id}/command/{domain}/{entity_slug}`
-- Ensure the `command` field uses `{domain}.{action}` format (e.g., `light.turn_on`)
-- Check HA logs for service call errors
+**Commands not executing**
+- Check the ack: `failed` with `expired` means the command arrived after its TTL — look at broker connectivity and clock sync (NTP) on the HA host.
+- `entity_not_exposed`: the target isn't in the effective exposed set.
+- Check HA logs for service-call errors; every executed command also appears in the HA Logbook with its actor metadata.
 
 ---
 
-## Protocol Reference
+## Development
 
-See **[PROTOCOL.md](PROTOCOL.md)** for the full message specification, topic schema, domain attribute definitions, and implementation guidelines.
-
----
+See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture notes, local setup, and how the pieces fit (`mqtt_bridge.py` data plane, `cloud.py` catalog sync, `enrollment.py` provisioning).
 
 ## Contributing
 
-Pull requests and issues are welcome. Please open an issue before submitting large changes.
-
----
+Pull requests and issues are welcome — including connectors for other platforms; the protocol is open by design. Please open an issue before large changes.
 
 ## License
 
