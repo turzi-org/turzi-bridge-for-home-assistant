@@ -735,9 +735,6 @@ class TurziMqttBridge:
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Failed to log to logbook for %s", entity_id)
 
-        # Small delay before executing the command (matches Node-RED flow)
-        await asyncio.sleep(0.1)
-
         # v1.1 §4 — call with a tracked HA context so the resulting state change
         # is attributed origin.type="turzi" with this command_id.
         service_context = Context()
