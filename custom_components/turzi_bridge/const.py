@@ -22,7 +22,7 @@ CONF_USE_TLS = "use_tls"
 CONF_MODE = "mode"  # "cloud" | "manual"
 CONF_BRIDGE_TOKEN = "bridge_token"
 CONF_API_BASE_URL = "api_base_url"
-CONF_ENROLLMENT_TOKEN = "enrollment_token"
+CONF_ENROLLMENT_TOKEN = "enrollment_key"
 DEFAULT_CLOUD_API_BASE_URL = "https://api.turzi.cloud/api/v2"
 
 # Options entry keys (stored in entry.options)

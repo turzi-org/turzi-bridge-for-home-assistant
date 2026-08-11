@@ -121,6 +121,9 @@ class TurziMqttBridge:
         # supports it. Callback receives the parsed config/exposure payload;
         # config_revision is reported in the retained availability payload.
         self.exposure_callback = None
+        # Called when the platform unlinks this bridge (config/unlink):
+        # instant feedback instead of waiting for the next 401.
+        self.unlink_callback = None
         self.config_revision: int | None = None
 
         # Status tracking (exposed via turzi/status WebSocket)
@@ -472,6 +475,13 @@ class TurziMqttBridge:
             await client.subscribe(config_topic, qos=1)
             _LOGGER.debug("Subscribed to %s", config_topic)
 
+        # Unlink notice (not retained; cloud mode only): the platform says
+        # goodbye BEFORE revoking credentials, so the UI reacts instantly.
+        if self.unlink_callback is not None:
+            unlink_topic = f"house/{self._house_id}/config/unlink"
+            await client.subscribe(unlink_topic, qos=1)
+            _LOGGER.debug("Subscribed to %s", unlink_topic)
+
     async def _publish_all_current_states(self, client: aiomqtt.Client) -> None:
         """Publish the current state of all exposed entities.
 
@@ -610,6 +620,13 @@ class TurziMqttBridge:
         # App-initiated reload request
         if topic == f"house/{self._house_id}/app/command/reload":
             await self._handle_reload_request()
+            return
+
+        # Platform unlink notice (PROTOCOL.md, Unlink Notice)
+        if topic == f"house/{self._house_id}/config/unlink":
+            if self.unlink_callback is not None:
+                _LOGGER.warning("Platform unlinked this bridge — stopping")
+                await self.unlink_callback()
             return
 
         # Remote exposure config (PROTOCOL.md, Exposure Configuration)

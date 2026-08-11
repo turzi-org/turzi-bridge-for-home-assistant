@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
 from homeassistant.helpers.start import async_at_started
 
 from .cloud import TurziCloudSync
@@ -52,6 +53,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
         hass.data[DOMAIN][entry.entry_id]["cloud"] = cloud
         bridge.exposure_callback = cloud.async_apply_exposure
         bridge.config_revision = entry.options.get(CONF_CONFIG_REVISION)
+
+        async def _on_unlinked() -> None:
+            """Platform unlinked this bridge: stop and ask for a new key."""
+            async_create_issue(
+                hass,
+                DOMAIN,
+                f"unlinked_{entry.entry_id}",
+                is_fixable=False,
+                severity=IssueSeverity.ERROR,
+                translation_key="unlinked",
+            )
+            entry.async_start_reauth(hass)
+            hass.async_create_task(bridge.async_stop())
+
+        bridge.unlink_callback = _on_unlinked
 
     async def _start_bridge(_hass: HomeAssistant) -> None:
         """Start the bridge once HA has finished starting."""

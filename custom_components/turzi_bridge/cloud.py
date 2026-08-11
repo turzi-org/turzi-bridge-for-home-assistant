@@ -191,6 +191,7 @@ class TurziCloudSync:
                         severity=IssueSeverity.ERROR,
                         translation_key="token_revoked",
                     )
+                    self.entry.async_start_reauth(self.hass)
                     return
                 if resp.status != 200:
                     _LOGGER.warning("Catalog registration failed: HTTP %s", resp.status)

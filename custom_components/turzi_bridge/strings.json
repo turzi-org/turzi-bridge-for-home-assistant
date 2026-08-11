@@ -12,11 +12,11 @@
         "title": "Connect to Turzi Cloud",
         "description": "Paste the enrollment token generated in the Turzi Community Manager. The bridge will be provisioned automatically.",
         "data": {
-          "enrollment_token": "Enrollment token",
+          "enrollment_key": "Enrollment key",
           "api_base_url": "API base URL"
         },
         "data_description": {
-          "enrollment_token": "Single-use token (TRZ-XXXX-XXXX-XXXX) generated for this home.",
+          "enrollment_key": "Single-use installation key (TRZ-XXXX-XXXX-XXXX) generated in the Turzi Community Manager.",
           "api_base_url": "Only change this when connecting to a self-hosted Turzi backend."
         }
       },
@@ -59,6 +59,14 @@
           "house_id": "A unique identifier for this house (used in MQTT topic prefixes).",
           "use_tls": "Enable TLS encryption for the MQTT connection."
         }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect to Turzi Cloud",
+        "description": "This bridge was unlinked from the platform. Enter a new installation key to reconnect — your included domains, exposed entities and privacy blocklist are preserved.",
+        "data": {
+          "enrollment_key": "Enrollment key",
+          "api_base_url": "API base URL"
+        }
       }
     },
     "error": {
@@ -71,13 +79,18 @@
     },
     "abort": {
       "already_configured": "This house ID is already configured.",
-      "reconfigure_successful": "Broker settings updated successfully."
+      "reconfigure_successful": "Broker settings updated successfully.",
+      "reauth_successful": "Reconnected successfully."
     }
   },
   "issues": {
     "token_revoked": {
       "title": "Turzi Cloud connection revoked",
       "description": "This bridge was unlinked from Turzi Cloud. Ask your community manager for a new enrollment token, then re-add the integration."
+    },
+    "unlinked": {
+      "title": "Bridge unlinked from Turzi",
+      "description": "The Turzi platform unlinked this bridge. Reconnect it with a new installation key (Settings → Devices & Services → turzi Bridge → Reconfigure), or remove the integration."
     }
   },
   "options": {

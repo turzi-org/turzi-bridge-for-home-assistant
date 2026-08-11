@@ -288,6 +288,18 @@ Core obligations on applying a revision:
 
 Cores that do not support remote configuration simply never subscribe to this topic; their exposure remains locally managed.
 
+### Unlink Notice
+
+*(v1.1, optional)* When a managed platform unlinks a core (decommission, credential revocation), it SHOULD publish an unlink notice **before** revoking the core's broker credential, so the core can react instantly instead of discovering the revocation on its next API call or reconnect.
+
+**Topic:** `house/{id}/config/unlink` — QoS 1, **not retained** (a future enrollment on the same namespace must not replay a stale goodbye), published by the **platform only**.
+
+```json
+{ "reason": "unlinked", "timestamp": 1705325400 }
+```
+
+On receipt the core SHOULD stop its connection attempts and surface a re-enrollment prompt to the operator (in Home Assistant: a repair issue plus a reauthentication flow that preserves local configuration — exposure choices survive; only the connection is re-provisioned).
+
 ---
 
 ## 2. Domain Attribute Specification
@@ -506,6 +518,7 @@ All topics are prefixed with `house/{house_id}/`, where `house_id` is a unique i
 | Core → Clients | `house/{id}/ack/{command_id}` | 1 | ❌ | Command Acknowledgment *(v1.1)* |
 | Publisher → Core | `house/{id}/command/{domain}/{entity_slug}` | 2 (1 with `command_id`) | ❌ | Command |
 | Platform → Core | `house/{id}/config/exposure` | 1 | ✅ | Exposure Configuration *(v1.1)* |
+| Platform → Core | `house/{id}/config/unlink` | 1 | ❌ | Unlink Notice *(v1.1)* |
 | Publisher → Core | `house/{id}/app/command/reload` | 1 | ❌ | State Reload Request |
 | Core → App | `house/{id}/app/state/heartbeat` *(deprecated)* | 0 | ❌ | Heartbeat Pong |
 | App → Core | `house/{id}/app/command/heartbeat` *(deprecated)* | 0 | ❌ | Heartbeat Ping |

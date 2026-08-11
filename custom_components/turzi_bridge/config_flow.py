@@ -23,6 +23,9 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 
 from .const import (
@@ -113,6 +116,19 @@ def _default_options(hass, cloud: bool = False) -> dict[str, Any]:
     }
 
 
+def _cloud_schema(default_base_url: str) -> vol.Schema:
+    """Enrollment form: the key is short-lived and single-use — a plain
+    visible text field, never password-masked."""
+    return vol.Schema(
+        {
+            vol.Required(CONF_ENROLLMENT_TOKEN): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="off")
+            ),
+            vol.Optional(CONF_API_BASE_URL, default=default_base_url): str,
+        }
+    )
+
+
 class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the config flow for turzi Bridge.
 
@@ -167,13 +183,61 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="cloud",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ENROLLMENT_TOKEN): str,
-                    vol.Optional(
-                        CONF_API_BASE_URL, default=DEFAULT_CLOUD_API_BASE_URL
-                    ): str,
-                }
+            data_schema=_cloud_schema(DEFAULT_CLOUD_API_BASE_URL),
+            errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """Platform unlinked us (or the token was revoked): reconnect."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Enter a new enrollment key — options (domains, entities,
+        blocklist) are preserved; only the connection is re-provisioned."""
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            base_url = (
+                user_input.get(CONF_API_BASE_URL)
+                or entry.data.get(CONF_API_BASE_URL)
+                or DEFAULT_CLOUD_API_BASE_URL
+            ).strip()
+            try:
+                result = await async_enroll(
+                    self.hass, base_url, user_input[CONF_ENROLLMENT_TOKEN]
+                )
+            except EnrollmentError as err:
+                errors["base"] = err.code
+            else:
+                if entry.unique_id != result.house_id:
+                    self.hass.config_entries.async_update_entry(
+                        entry, unique_id=result.house_id
+                    )
+                return self.async_update_reload_and_abort(
+                    entry,
+                    title=f"turzi Bridge for Home Assistant — {result.house_id}",
+                    data={
+                        CONF_MODE: "cloud",
+                        CONF_BROKER: result.mqtt_host,
+                        CONF_PORT: result.mqtt_port,
+                        CONF_USERNAME: result.mqtt_username,
+                        CONF_PASSWORD: result.mqtt_password,
+                        CONF_HOUSE_ID: result.house_id,
+                        CONF_USE_TLS: result.mqtt_tls,
+                        CONF_BRIDGE_TOKEN: result.bridge_token,
+                        CONF_API_BASE_URL: base_url,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=_cloud_schema(
+                entry.data.get(CONF_API_BASE_URL, DEFAULT_CLOUD_API_BASE_URL)
             ),
             errors=errors,
         )
