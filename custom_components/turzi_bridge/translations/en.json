@@ -4,13 +4,13 @@
       "user": {
         "title": "Set up turzi Bridge",
         "menu_options": {
-          "cloud": "Connect to Turzi Cloud (enrollment token)",
+          "cloud": "Connect to Turzi Cloud (enrollment key)",
           "manual": "Self-hosted / manual broker setup"
         }
       },
       "cloud": {
         "title": "Connect to Turzi Cloud",
-        "description": "Paste the enrollment token generated in the Turzi Community Manager. The bridge will be provisioned automatically.",
+        "description": "Paste the enrollment key generated in the Turzi Community Manager. The bridge will be provisioned automatically.",
         "data": {
           "enrollment_key": "Enrollment key",
           "api_base_url": "API base URL"
@@ -72,7 +72,7 @@
     "error": {
       "cannot_connect": "Failed to connect. Please check your settings and network.",
       "invalid_host": "Invalid broker hostname.",
-      "token_invalid": "This enrollment token is unknown, expired, or already used. Generate a new one in the Turzi Community Manager.",
+      "token_invalid": "This enrollment key is unknown, expired, or already used. Generate a new one in the Turzi Community Manager.",
       "rate_limited": "Too many attempts. Please wait a few minutes and try again.",
       "home_not_ready": "This home is not ready for enrollment yet — ask your community manager to configure its smart home connection.",
       "unknown": "An unexpected error occurred."
@@ -86,7 +86,7 @@
   "issues": {
     "token_revoked": {
       "title": "Turzi Cloud connection revoked",
-      "description": "This bridge was unlinked from Turzi Cloud. Ask your community manager for a new enrollment token, then re-add the integration."
+      "description": "This bridge was unlinked from Turzi Cloud. Ask your community manager for a new enrollment key, then reconnect the integration."
     },
     "unlinked": {
       "title": "Bridge unlinked from Turzi",

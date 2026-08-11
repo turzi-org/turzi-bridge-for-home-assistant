@@ -1,0 +1,116 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurar turzi Bridge",
+        "menu_options": {
+          "cloud": "Conectar a Turzi Cloud (código de instalación)",
+          "manual": "Broker propio / configuración manual"
+        }
+      },
+      "cloud": {
+        "title": "Conectar a Turzi Cloud",
+        "description": "Ingresá el código de instalación generado en el Turzi Community Manager. El bridge se aprovisiona automáticamente.",
+        "data": {
+          "enrollment_key": "Código de instalación",
+          "api_base_url": "URL base de la API"
+        },
+        "data_description": {
+          "enrollment_key": "Código de un solo uso (TRZ-XXXX-XXXX-XXXX) generado en el Turzi Community Manager.",
+          "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado."
+        }
+      },
+      "manual": {
+        "title": "Configuración del broker MQTT",
+        "description": "Configurá la conexión a tu propio broker MQTT (modo autoalojado / local).",
+        "data": {
+          "broker": "Host del broker",
+          "port": "Puerto",
+          "username": "Usuario",
+          "password": "Contraseña",
+          "house_id": "ID de la casa",
+          "use_tls": "Usar TLS"
+        },
+        "data_description": {
+          "broker": "El hostname o la dirección IP de tu broker MQTT.",
+          "port": "El puerto de tu broker MQTT (por defecto: 1883).",
+          "username": "Usuario opcional para la autenticación MQTT.",
+          "password": "Contraseña opcional para la autenticación MQTT.",
+          "house_id": "Identificador único de esta casa (se usa como prefijo de los topics MQTT).",
+          "use_tls": "Habilitar cifrado TLS para la conexión MQTT."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigurar broker MQTT",
+        "description": "Actualizá los datos de conexión al broker MQTT.",
+        "data": {
+          "broker": "Host del broker",
+          "port": "Puerto",
+          "username": "Usuario",
+          "password": "Contraseña",
+          "house_id": "ID de la casa",
+          "use_tls": "Usar TLS"
+        },
+        "data_description": {
+          "broker": "El hostname o la dirección IP de tu broker MQTT.",
+          "port": "El puerto de tu broker MQTT (por defecto: 1883).",
+          "username": "Usuario opcional para la autenticación MQTT.",
+          "password": "Contraseña opcional para la autenticación MQTT.",
+          "house_id": "Identificador único de esta casa (se usa como prefijo de los topics MQTT).",
+          "use_tls": "Habilitar cifrado TLS para la conexión MQTT."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconectar a Turzi Cloud",
+        "description": "La plataforma desvinculó este bridge. Ingresá un nuevo código de instalación para reconectarlo — los dominios incluidos, las entidades expuestas y la lista de privacidad se conservan.",
+        "data": {
+          "enrollment_key": "Código de instalación",
+          "api_base_url": "URL base de la API"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No se pudo conectar. Revisá la configuración y la red.",
+      "invalid_host": "Host del broker inválido.",
+      "token_invalid": "Este código de instalación es desconocido, expiró o ya fue usado. Generá uno nuevo en el Turzi Community Manager.",
+      "rate_limited": "Demasiados intentos. Esperá unos minutos y volvé a intentar.",
+      "home_not_ready": "Esta comunidad todavía no está lista para la instalación — pedile al administrador que configure su conexión de smart home.",
+      "unknown": "Ocurrió un error inesperado."
+    },
+    "abort": {
+      "already_configured": "Este ID de casa ya está configurado.",
+      "reconfigure_successful": "Configuración del broker actualizada.",
+      "reauth_successful": "Reconectado correctamente."
+    }
+  },
+  "issues": {
+    "token_revoked": {
+      "title": "Conexión con Turzi Cloud revocada",
+      "description": "Este bridge fue desvinculado de Turzi Cloud. Pedile al administrador un nuevo código de instalación y reconectá la integración."
+    },
+    "unlinked": {
+      "title": "Bridge desvinculado de Turzi",
+      "description": "La plataforma Turzi desvinculó este bridge. Reconectalo con un nuevo código de instalación (Ajustes → Dispositivos y servicios → turzi Bridge → Reconfigurar), o eliminá la integración."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Exposición y privacidad",
+        "description": "Elegí qué entidades se publican a la app de Turzi. Las entidades en la lista de privacidad no se publican nunca, en ningún modo — ni siquiera cuando la exposición se administra de forma remota.",
+        "data": {
+          "included_domains": "Dominios incluidos",
+          "exposed_entities": "Entidades expuestas manualmente",
+          "auto_add_new": "Exponer automáticamente entidades nuevas",
+          "never_expose": "Lista de privacidad (nunca exponer)"
+        },
+        "data_description": {
+          "included_domains": "TODAS las entidades de estos dominios se publican automáticamente.",
+          "exposed_entities": "Entidades individuales publicadas ADEMÁS de los dominios incluidos (p. ej. un sensor puntual).",
+          "auto_add_new": "Las entidades nuevas de los dominios incluidos se exponen automáticamente.",
+          "never_expose": "Estas entidades no se publican nunca; esta lista pisa cualquier otra configuración y sobrevive a la re-instalación."
+        }
+      }
+    }
+  }
+}
