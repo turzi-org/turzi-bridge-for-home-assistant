@@ -67,6 +67,18 @@
           "enrollment_key": "Enrollment key",
           "api_base_url": "API base URL"
         }
+      },
+      "reconfigure_cloud": {
+        "title": "Re-provision Turzi Cloud connection",
+        "description": "This bridge is provisioned by Turzi Cloud, so its broker settings are not edited by hand. Enter a new installation key to re-provision it — your included domains, exposed entities and privacy blocklist are preserved.",
+        "data": {
+          "enrollment_key": "Enrollment key",
+          "api_base_url": "API base URL"
+        },
+        "data_description": {
+          "enrollment_key": "Single-use installation key (TRZ-XXXX-XXXX-XXXX) generated in the Turzi Community Manager. Submitting it revokes this bridge's current connection, so only use a key you mean to spend.",
+          "api_base_url": "Only change this when connecting to a self-hosted Turzi backend."
+        }
       }
     },
     "error": {
@@ -78,10 +90,12 @@
       "unknown": "An unexpected error occurred.",
       "broker_not_configured": "The community's MQTT broker has no dynsec admin credential loaded, so no per-home credential can be minted. Load it for that broker in the Admin Panel (Brokers MQTT) and try again.",
       "community_has_no_smart_home_connection": "This community has no MQTT broker assigned yet. Assign one in the Admin Panel, then try again.",
-      "invalid_request": "The server rejected the request. Check that the installation key was pasted whole."
+      "invalid_request": "The server rejected the request. Check that the installation key was pasted whole.",
+      "api_url_invalid": "No Turzi API answered at that address. Check the API base URL — it must include the /api/v2 path."
     },
     "abort": {
       "already_configured": "This house ID is already configured.",
+      "house_already_configured": "That installation key belongs to a house another turzi Bridge entry already holds, so this entry was left untouched. The key has been used up, and enrolling it revoked that other entry's connection — get a new key and use it there.",
       "reconfigure_successful": "Broker settings updated successfully.",
       "reauth_successful": "Reconnected successfully."
     }

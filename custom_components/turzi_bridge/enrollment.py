@@ -66,13 +66,43 @@ async def async_enroll(
             server_code: str | None = None
             if resp.status != 200:
                 try:
-                    server_code = (await resp.json()).get("error")
+                    raw_error = (await resp.json()).get("error")
                 except Exception:  # noqa: BLE001 — cuerpo vacío o no-JSON
-                    server_code = None
+                    raw_error = None
+                if isinstance(raw_error, str):
+                    server_code = raw_error
+                elif raw_error is not None:
+                    # Only the bridge routes answer {"error": "<code>"}; the API's
+                    # generic handler nests {"error": {"code": ...}}. A dict is
+                    # truthy, so it would slip through every `server_code or ...`
+                    # below and land in errors["base"], where the frontend looks up
+                    # config.error.[object Object] and prints a raw identifier.
+                    # Those codes name internal faults (DATABASE_ERROR,
+                    # INTERNAL_SERVER_ERROR) that no installer can act on anyway:
+                    # they belong in the log, not in the dialog.
+                    _LOGGER.error(
+                        "Enrollment failed with a server fault: %s", raw_error
+                    )
 
             if resp.status == 429:
                 raise EnrollmentError("rate_limited")
             if resp.status in (404, 410):
+                # Two different 404s reach here. The enroll route answers a flat
+                # {"error": "token_unknown"} when the key is bad; Express answers
+                # its own nested 404 when the base URL does not resolve to the API
+                # at all. So no flat code on a 404 means the URL is wrong, not the
+                # key — and that URL is an editable field whose default already
+                # changed once (53559f1), so old installs still carry a base that
+                # cannot serve /bridge/enroll. Calling it "bad key" sends the
+                # installer to burn fresh single-use keys against a URL that will
+                # never work. 410 only ever comes from the enroll route.
+                if resp.status == 404 and server_code is None:
+                    _LOGGER.error(
+                        "Enrollment got HTTP 404 with no bridge error code from %s: "
+                        "the API base URL does not resolve to a Turzi API",
+                        url,
+                    )
+                    raise EnrollmentError("api_url_invalid")
                 raise EnrollmentError("token_invalid")
             if resp.status == 409:
                 # 409 es "la comunidad todavía no está lista", pero el motivo

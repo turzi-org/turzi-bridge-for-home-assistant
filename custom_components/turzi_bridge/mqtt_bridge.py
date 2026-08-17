@@ -30,6 +30,7 @@ from homeassistant.core import (
     State,
     callback,
 )
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
@@ -69,6 +70,37 @@ _PUBLISHED_SAVE_DELAY = 10
 _RECONNECT_MIN_DELAY = 5
 _RECONNECT_MAX_DELAY = 60
 _RECONNECT_BACKOFF_FACTOR = 2
+
+
+def _suback_refused(codes: Any) -> bool:
+    """True when the broker refused a subscription (SUBACK return code 0x80).
+
+    A refusal is otherwise invisible: MQTT 3.1.1 §3.9 has the broker answer a
+    denied subscription with a normal SUBACK — no error, no disconnect — so
+    discarding the return value turns a wrong ACL into a bridge that reports
+    itself online and drops every message on that topic in silence.
+
+    Only 0x80 counts. A broker configured with `max_qos 1` legally answers a
+    qos=2 subscribe with granted QoS 1; comparing against the requested QoS
+    would brick every deployment behind a QoS-capped broker.
+    """
+    if not isinstance(codes, (list, tuple)):
+        # The manifest pins only `aiomqtt>=2.0.0`, and the return shape was read
+        # off 2.5.1. If an older build hands back something else, there is
+        # nothing to judge — treat it as granted rather than refusing every
+        # subscription and reconnecting forever.
+        return False
+    for code in codes:
+        # aiomqtt types this as `tuple[int, ...] | list[ReasonCode]`, and paho's
+        # ReasonCode defines no __int__ — so int() must not be reached for the
+        # ReasonCode case.
+        is_failure = getattr(code, "is_failure", None)
+        if is_failure is None:
+            if int(code) >= 0x80:
+                return True
+        elif is_failure:
+            return True
+    return False
 
 
 class TurziMqttBridge:
@@ -111,6 +143,9 @@ class TurziMqttBridge:
         self._unsub_reload_listener: callback | None = None
         self._unsub_registry_listener: callback | None = None
         self._stopping = False
+        # Built once, off the event loop, and reused for every reconnect
+        # (see `_connection_loop`).
+        self._tls_context: ssl.SSLContext | None = None
 
         # Entity_ids believed to hold a RETAINED payload on the broker right
         # now. Persisted (see `_store`), because it is the only record of what
@@ -387,6 +422,41 @@ class TurziMqttBridge:
                     )
                 self._exposed_entities.discard(entity_id)
 
+            elif action == "update":
+                # A rename and a disable both arrive as "update", and both make
+                # the entity vanish from the state machine under its old id —
+                # which _on_state_changed returns out of, because new_state is
+                # None. Nothing else revisits it while we stay connected, so the
+                # old slug keeps a retained payload the app shows as a live,
+                # commandable device. PROTOCOL.md (Entity Cleanup) covers this
+                # case: the entity did leave the exposed set, under its old
+                # identifier. The renamed entity needs no republish here — it
+                # enters the state machine under the new id and takes the normal
+                # state_changed path.
+                old_entity_id = event.data.get("old_entity_id")
+                if old_entity_id:
+                    # `old_entity_id` rather than probing hass.states: listener
+                    # ordering against the entity platform is not guaranteed, so
+                    # the old state may still be there when this runs.
+                    if (
+                        old_entity_id in self._published_entities
+                        and self._client is not None
+                    ):
+                        self.hass.async_create_task(
+                            self._remove_entity_from_mqtt(self._client, old_entity_id),
+                            f"turzi_remove_{old_entity_id}",
+                        )
+                    self._exposed_entities.discard(old_entity_id)
+                elif entity_id in self._published_entities and self._client is not None:
+                    # A disable keeps the id, so the registry is the only place
+                    # that says so — and it is already written when this fires.
+                    reg_entry = er.async_get(self.hass).async_get(entity_id)
+                    if reg_entry is not None and reg_entry.disabled_by:
+                        self.hass.async_create_task(
+                            self._remove_entity_from_mqtt(self._client, entity_id),
+                            f"turzi_remove_{entity_id}",
+                        )
+
         self._unsub_registry_listener = self.hass.bus.async_listen(
             er.EVENT_ENTITY_REGISTRY_UPDATED, _on_registry_updated
         )
@@ -417,7 +487,22 @@ class TurziMqttBridge:
                 # ahora el único broker era el de la LAN en 1883 sin TLS: con
                 # `_use_tls` en false esto era None y el camino estaba muerto.
                 # Contra el primer broker con TLS falla en el acto, y en bucle.
-                tls_context = ssl.create_default_context() if self._use_tls else None
+                #
+                # Built once, in the executor: create_default_context() with no
+                # cafile ends up in load_default_certs(), and OpenSSL reads and
+                # parses the whole system CA bundle right there — blocking disk
+                # I/O, and this coroutine runs on the HA event loop. Inside the
+                # retry loop it also paid for that on every single reconnect
+                # attempt. Reusing one context across connections is the normal
+                # pattern; the only cost is that a CA-store change on disk is
+                # picked up on the next reload rather than the next reconnect.
+                # Kept inside the try so a broken CA store still logs and backs
+                # off instead of killing the task.
+                if self._use_tls and self._tls_context is None:
+                    self._tls_context = await self.hass.async_add_executor_job(
+                        ssl.create_default_context
+                    )
+                tls_context = self._tls_context
 
                 async with aiomqtt.Client(
                     hostname=self._broker,
@@ -446,15 +531,38 @@ class TurziMqttBridge:
                         self._broker, self._port, self._house_id,
                     )
 
-                    await self._subscribe_topics(client)
-                    await self._publish_availability(client, "online")
-                    # Clear first, then publish: the broker never holds both
-                    # the stale payload and the fresh one.
-                    await self._reconcile_retained_state(client)
-                    await self._publish_all_current_states(client)
+                    try:
+                        await self._subscribe_topics(client)
+                        await self._publish_availability(client, "online")
+                        # Clear first, then publish: the broker never holds both
+                        # the stale payload and the fresh one.
+                        await self._reconcile_retained_state(client)
+                        await self._publish_all_current_states(client)
 
-                    async for message in client.messages:
-                        await self._handle_message(message)
+                        async for message in client.messages:
+                            await self._handle_message(message)
+                    except (aiomqtt.MqttError, asyncio.CancelledError):
+                        # Both of these already announce offline correctly: the
+                        # broker publishes the Will when the link dies, and
+                        # async_stop publishes the shutdown payload before it
+                        # cancels us. Saying it again here would only race them.
+                        # (CancelledError is a BaseException and would not reach
+                        # the handler below anyway; it is named so the next edit
+                        # does not have to rediscover that.)
+                        raise
+                    except Exception:  # noqa: BLE001 — re-raised below
+                        # Any other error unwinds through aiomqtt's __aexit__,
+                        # which sends a clean DISCONNECT even while an exception
+                        # is in flight — and MQTT 3.1.1 §3.14.4 makes the broker
+                        # DISCARD the Will on a clean DISCONNECT. So nobody
+                        # announces this: the retained availability stays
+                        # "online" for the whole backoff window while the bridge
+                        # answers nothing, and clients keep treating stale state
+                        # as verified instead of showing the house unreachable.
+                        await self._publish_availability(
+                            client, "offline", reason="internal_error"
+                        )
+                        raise
 
             except aiomqtt.MqttError as err:
                 self._client = None
@@ -505,31 +613,59 @@ class TurziMqttBridge:
         """Subscribe to all incoming MQTT topics."""
         # Commands from app: house/{id}/command/#
         command_topic = f"house/{self._house_id}/command/#"
-        await client.subscribe(command_topic, qos=2)
+        if _suback_refused(await client.subscribe(command_topic, qos=2)):
+            # Fatal on purpose, and raised as MqttError so the connection loop's
+            # existing backoff picks it up. It fires one line BEFORE the "online"
+            # announcement below, which is what keeps a bridge that cannot hear
+            # commands from advertising itself as healthy — do not reorder those.
+            # The house going visibly offline costs the resident state
+            # visibility, but the alternative is a door that acks and never
+            # opens. The topic is named so the ACL can be fixed from the log.
+            raise aiomqtt.MqttError(
+                f"Broker refused the subscription to '{command_topic}' for house "
+                f"'{self._house_id}' — check the ACL on this credential"
+            )
         _LOGGER.debug("Subscribed to %s", command_topic)
 
         # Heartbeat ping: house/{id}/app/command/heartbeat
         heartbeat_topic = f"house/{self._house_id}/app/command/heartbeat"
-        await client.subscribe(heartbeat_topic, qos=0)
-        _LOGGER.debug("Subscribed to %s", heartbeat_topic)
+        await self._subscribe_optional(client, heartbeat_topic, 0)
 
         # App reload request: house/{id}/app/command/reload
         reload_topic = f"house/{self._house_id}/app/command/reload"
-        await client.subscribe(reload_topic, qos=1)
-        _LOGGER.debug("Subscribed to %s", reload_topic)
+        await self._subscribe_optional(client, reload_topic, 1)
 
         # Remote exposure config (retained; cloud mode only)
         if self.exposure_callback is not None:
             config_topic = f"house/{self._house_id}/config/exposure"
-            await client.subscribe(config_topic, qos=1)
-            _LOGGER.debug("Subscribed to %s", config_topic)
+            await self._subscribe_optional(client, config_topic, 1)
 
         # Unlink notice (not retained; cloud mode only): the platform says
         # goodbye BEFORE revoking credentials, so the UI reacts instantly.
         if self.unlink_callback is not None:
             unlink_topic = f"house/{self._house_id}/config/unlink"
-            await client.subscribe(unlink_topic, qos=1)
-            _LOGGER.debug("Subscribed to %s", unlink_topic)
+            await self._subscribe_optional(client, unlink_topic, 1)
+
+    async def _subscribe_optional(
+        self, client: aiomqtt.Client, topic: str, qos: int
+    ) -> None:
+        """Subscribe to a topic whose refusal degrades the bridge without killing it.
+
+        Unlike the command topic, losing these leaves a bridge that is still
+        worth having: state keeps flowing. They are reported loudly instead —
+        the panel Status tab is where an installer would otherwise have no
+        indication at all that, say, reload requests are being dropped.
+        """
+        if _suback_refused(await client.subscribe(topic, qos=qos)):
+            _LOGGER.error(
+                "Broker refused the subscription to '%s' for house '%s' — "
+                "messages on that topic will be dropped",
+                topic,
+                self._house_id,
+            )
+            self._log_event("error", f"Broker refused subscription: {topic}")
+            return
+        _LOGGER.debug("Subscribed to %s", topic)
 
     # -------------------------------------------------------------------------
     # Retained-topic ledger
@@ -773,7 +909,11 @@ class TurziMqttBridge:
                 return
             try:
                 exposure = json.loads(message.payload)
-            except (json.JSONDecodeError, TypeError):
+            # ValueError, not JSONDecodeError: a payload that is not valid UTF-8
+            # raises UnicodeDecodeError, which is a ValueError but NOT a
+            # JSONDecodeError, so it used to escape all the way to the
+            # connection loop and take the link down over one bad byte.
+            except (ValueError, TypeError):
                 _LOGGER.error("Invalid JSON on config/exposure")
                 return
             await self.exposure_callback(exposure)
@@ -782,7 +922,15 @@ class TurziMqttBridge:
         # Command from app: house/{id}/command/{domain}/{entity_slug}
         prefix = f"house/{self._house_id}/command/"
         if topic.startswith(prefix):
-            await self._handle_command(topic, message)
+            # Spawned, not awaited: the service call is blocking now, and this
+            # loop is serial — awaiting here would park the heartbeat, the
+            # unlink notice and every other command behind one slow door.
+            # Invocation order is still arrival order, because the spawn itself
+            # happens in the loop. hass.async_create_task (not asyncio's) so HA
+            # tracks it and an in-flight command is awaited at shutdown.
+            self.hass.async_create_task(
+                self._handle_command(topic, message), f"turzi_command_{topic}"
+            )
             return
 
         _LOGGER.debug("Received message on unhandled topic: %s", topic)
@@ -799,8 +947,19 @@ class TurziMqttBridge:
 
         try:
             payload = json.loads(message.payload)
-        except (json.JSONDecodeError, TypeError):
+        # See _handle_message: UnicodeDecodeError is a ValueError, not a
+        # JSONDecodeError, and a non-UTF-8 payload here used to kill the link.
+        except (ValueError, TypeError):
             _LOGGER.error("Invalid JSON payload on topic %s", topic)
+            return
+
+        # A command payload is a JSON OBJECT. Valid JSON that is not one —
+        # `5`, `null` — makes every lookup below raise TypeError, and since
+        # this coroutine is now spawned rather than awaited by the message
+        # loop, that would surface as an unhandled task exception: no ack, no
+        # log tying it to this topic, and nothing the connection guard sees.
+        if not isinstance(payload, dict):
+            _LOGGER.error("Command payload on topic %s is not a JSON object", topic)
             return
 
         if "command" not in payload:
@@ -853,6 +1012,24 @@ class TurziMqttBridge:
                 await self._publish_ack(command_id, "failed", "entity_not_exposed")
             return
 
+        # A ghost — renamed, deleted or disabled while we still hold its
+        # retained payload — sails through should_expose(), which only knows
+        # domains and lists. The service call then matches nothing: HA logs
+        # "Unable to find referenced entities" at WARNING and does NOT raise, so
+        # without this the app gets `executed` for a door that does not exist.
+        # Strictly "no state object": an entity sitting at `unavailable` or
+        # `unknown` may still accept the command (flaky Zigbee/Z-Wave radios),
+        # and rejecting those would break exactly the devices that need retries.
+        if self.hass.states.get(entity_id) is None:
+            _LOGGER.warning("Rejected command for unknown entity '%s'", entity_id)
+            self._log_event(
+                "warning",
+                f"Rejected command for unknown entity: {entity_id}",
+            )
+            if command_id:
+                await self._publish_ack(command_id, "failed", "entity_unavailable")
+            return
+
         # Special handling for alarm_control_panel
         if domain == "alarm_control_panel":
             alarm_mode = parameters.get("alarm_mode")
@@ -898,11 +1075,21 @@ class TurziMqttBridge:
 
         # Call the HA service
         try:
+            # blocking=True is what makes the ack mean anything. With
+            # blocking=False the coroutine is handed to HA, which logs whatever
+            # the lock or cover platform raises and returns immediately — the
+            # failure never reaches the handlers below, so `platform_error` was
+            # unreachable and every invocation, working or not, acked
+            # `executed`. PROTOCOL.md then tells the client to resolve an
+            # `executed` with no state update as success: a failed unlock shown
+            # as a green tick. The ack is now late by however long the platform
+            # takes (clients time out around 5 s) instead of wrong; a slow door
+            # is a visible timeout, which is the honest outcome.
             await self.hass.services.async_call(
                 service_domain,
                 service_action,
                 service_data,
-                blocking=False,
+                blocking=True,
                 context=service_context,
             )
             self._log_event(
@@ -915,6 +1102,20 @@ class TurziMqttBridge:
             )
             if command_id:
                 await self._publish_ack(command_id, "executed")
+        except HomeAssistantError as err:
+            # The platform reporting a normal failure (device unreachable, bad
+            # parameters, no such service) — not a bug in the bridge, so no
+            # traceback. Caught before the broad handler, so exactly one
+            # terminal ack still goes out per command_id.
+            _LOGGER.warning(
+                "Command %s.%s for %s failed: %s",
+                service_domain,
+                service_action,
+                entity_id,
+                err,
+            )
+            if command_id:
+                await self._publish_ack(command_id, "failed", "platform_error")
         except Exception:  # noqa: BLE001
             _LOGGER.exception(
                 "Failed to execute command %s.%s for %s",
@@ -929,16 +1130,22 @@ class TurziMqttBridge:
     # Availability & command acks (Protocol v1.1)
     # -------------------------------------------------------------------------
 
-    async def _publish_availability(self, client: aiomqtt.Client, state: str) -> None:
+    async def _publish_availability(
+        self, client: aiomqtt.Client, state: str, reason: str | None = None
+    ) -> None:
         """Publish the retained availability payload (v1.1 §1).
 
         config_revision doubles as the exposure-config acknowledgment (§5).
+        `reason` only ever accompanies an offline state — the online payload
+        has no such field in the spec, and the platform may key on its absence.
         """
         payload: dict[str, Any] = {
             "state": state,
             "timestamp": math.floor(datetime.now(tz=timezone.utc).timestamp()),
             "protocol_version": PROTOCOL_VERSION,
         }
+        if reason is not None:
+            payload["reason"] = reason
         if self.config_revision is not None:
             payload["config_revision"] = self.config_revision
         try:

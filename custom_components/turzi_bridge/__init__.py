@@ -8,7 +8,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    async_delete_issue,
+)
 from homeassistant.helpers.start import async_at_started
 
 from .cloud import TurziCloudSync
@@ -49,6 +53,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
     # up (HTTPS) and remote exposure config down (catalog response + the
     # retained config/exposure topic).
     if entry.data.get(CONF_MODE) == "cloud" and entry.data.get(CONF_BRIDGE_TOKEN):
+        # Reauth ends in async_update_reload_and_abort, so a fresh load is the
+        # only signal we get that the installer acted on the unlink repair —
+        # nothing else ever clears it, and it would sit there red over a bridge
+        # that is publishing normally.
+        #
+        # If the bridge is in fact still unlinked, the catalog POST that
+        # `start()` fires answers 401 and raises `token_revoked` instead, so
+        # the installer still gets a repair. Note what that does NOT cover: a
+        # 401 is the only path back: `config/unlink` is explicitly not retained
+        # (PROTOCOL.md §Unlink Notice — a later enrollment on the same
+        # namespace must not replay a stale goodbye), so MQTT will never
+        # re-raise it, and if the API is simply unreachable the POST fails as a
+        # ClientError with no retry. Unreachable API plus unlinked bridge is
+        # therefore a silent reconnect loop with nothing in the UI.
+        async_delete_issue(hass, DOMAIN, f"unlinked_{entry.entry_id}")
+
         cloud = TurziCloudSync(hass, entry)
         hass.data[DOMAIN][entry.entry_id]["cloud"] = cloud
         bridge.exposure_callback = cloud.async_apply_exposure
@@ -71,12 +91,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
 
     async def _start_bridge(_hass: HomeAssistant) -> None:
         """Start the bridge once HA has finished starting."""
+        # A reload landing before STARTED replaces this record while the stale
+        # closure still holds the old bridge. Without the identity check that
+        # bridge starts anyway — unreachable from hass.data, so nothing can ever
+        # stop it — and then double-publishes every state, double-executes every
+        # command, and clobbers the live bridge's published-entities ledger,
+        # which is keyed by entry_id and is what the next connect reconciles
+        # retained state against. A reload cannot use entry.state to tell the
+        # two apart: HA reuses the same ConfigEntry object across a reload.
+        record = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        if record is None or record.get("bridge") is not bridge:
+            return
         await bridge.async_start()
-        cloud_sync = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("cloud")
+        # Re-read instead of reusing the snapshot above. `async_start` awaits
+        # real disk I/O (the retained-topic ledger), and an unload landing in
+        # that window pops the record and calls `cloud.stop()`. Starting the
+        # already-stopped object off the stale dict would re-register the
+        # registry listener that `stop()` just released, with nothing left to
+        # ever unsubscribe it.
+        record = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        if record is None or record.get("bridge") is not bridge:
+            return
+        cloud_sync = record.get("cloud")
         if cloud_sync:
             cloud_sync.start()
 
-    async_at_started(hass, _start_bridge)
+    # Unsubscribing on unload is the primary guard; the check above covers the
+    # case async_at_started dispatches immediately and hands back a no-op unsub.
+    entry.async_on_unload(async_at_started(hass, _start_bridge))
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
@@ -107,6 +149,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bo
         entry.data.get("house_id", "unknown"),
     )
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> None:
+    """Clear repairs the entry raised — they outlive it, and nothing else drops them.
+
+    Deliberately not done in async_unload_entry: that also runs on every reload
+    and at HA shutdown, where dropping a legitimately raised repair leaves the
+    installer with no trace of why the bridge stopped.
+    """
+    async_delete_issue(hass, DOMAIN, f"unlinked_{entry.entry_id}")
+    async_delete_issue(hass, DOMAIN, f"token_revoked_{entry.entry_id}")
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bool:

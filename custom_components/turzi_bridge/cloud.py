@@ -73,7 +73,14 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
         if reg_entry.domain not in included and reg_entry.entity_id not in exposed:
             continue
         state = hass.states.get(reg_entry.entity_id)
-        name = (
+        # str() because `state.name` hands back the friendly_name attribute
+        # verbatim, whatever type it holds — a `homeassistant: customize:`
+        # block or a template `name: 2024` puts an int there — and the platform
+        # rejects the WHOLE catalog over a single non-string name. Registered
+        # entities reach this field through exactly the same attribute as the
+        # unregistered ones below, so both loops have to coerce or neither is
+        # protected.
+        name = str(
             reg_entry.name
             or reg_entry.original_name
             or (state.name if state else None)
@@ -96,6 +103,43 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
                 "added_on": created_at.isoformat() if created_at else None,
             }
         )
+
+    # Scope has to be measured the way publishing measures it. The MQTT side
+    # walks the state machine and its should_expose() is pure string work on the
+    # entity_id, so YAML `group:` entities and template/command_line entities
+    # declared without a unique_id — none of which ever get a registry entry —
+    # publish retained state and accept commands while the loop above cannot see
+    # them. Omitted here, the platform's inventory denies the existence of
+    # devices that are live on the broker: the manager cannot place them and
+    # cannot even see them in order to ask for them to be hidden. `group` is in
+    # the default included domains, so this is the common case, not the exotic
+    # one. The registry lookup is also what keeps the disabled_by skip above
+    # meaning something — a disabled entity whose state has not been torn down
+    # yet must not come back in through this door — and, since the loop above
+    # only ever emits registered ids, it makes a duplicate impossible.
+    for state in hass.states.async_all():
+        if registry.async_get(state.entity_id) is not None:
+            continue
+        if state.domain not in included and state.entity_id not in exposed:
+            continue
+        entities.append(
+            {
+                "id": state.entity_id,
+                "domain": state.domain,
+                "slug": state.entity_id.split(".", 1)[1],
+                # str() for the reason given on the registry loop above.
+                "name": str(state.name or state.entity_id),
+                # An entity with no registry entry cannot hold an area or a
+                # creation date; there is nowhere in HA for either to live.
+                "area": None,
+                "device_class": state.attributes.get("device_class"),
+                "exposed": state.entity_id not in blocked,
+                "locally_blocked": state.entity_id in blocked,
+                "last_seen": state.last_updated.isoformat(),
+                "added_on": None,
+            }
+        )
+
     entities.sort(key=lambda e: e["id"])
     return entities
 

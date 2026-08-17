@@ -67,6 +67,18 @@
           "enrollment_key": "Código de instalación",
           "api_base_url": "URL base de la API"
         }
+      },
+      "reconfigure_cloud": {
+        "title": "Reaprovisionar la conexión con Turzi Cloud",
+        "description": "Este bridge lo aprovisiona Turzi Cloud, así que sus datos de broker no se editan a mano. Ingresá un nuevo código de instalación para reaprovisionarlo — los dominios incluidos, las entidades expuestas y la lista de privacidad se conservan.",
+        "data": {
+          "enrollment_key": "Código de instalación",
+          "api_base_url": "URL base de la API"
+        },
+        "data_description": {
+          "enrollment_key": "Código de un solo uso (TRZ-XXXX-XXXX-XXXX) generado en el Turzi Community Manager. Al enviarlo se revoca la conexión actual de este bridge, así que usá solo un código que quieras gastar.",
+          "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado."
+        }
       }
     },
     "error": {
@@ -78,10 +90,12 @@
       "unknown": "Ocurrió un error inesperado.",
       "broker_not_configured": "El broker MQTT de la comunidad no tiene cargada su credencial de dynsec, así que no se puede acuñar la credencial de esta casa. Cargala para ese broker en el panel de administración (Brokers MQTT) y probá de nuevo.",
       "community_has_no_smart_home_connection": "Esta comunidad todavía no tiene un broker MQTT asignado. Asignale uno desde el panel de administración y probá de nuevo.",
-      "invalid_request": "El servidor rechazó el pedido. Fijate que el código de instalación esté pegado entero."
+      "invalid_request": "El servidor rechazó el pedido. Fijate que el código de instalación esté pegado entero.",
+      "api_url_invalid": "Ninguna API de Turzi respondió en esa dirección. Revisá la URL base de la API — tiene que incluir la ruta /api/v2."
     },
     "abort": {
       "already_configured": "Este ID de casa ya está configurado.",
+      "house_already_configured": "Ese código de instalación pertenece a una casa que ya tiene otra entrada de turzi Bridge, así que esta entrada quedó intacta. El código ya se consumió y el enrolamiento revocó la conexión de esa otra entrada — pedí uno nuevo y usalo ahí.",
       "reconfigure_successful": "Configuración del broker actualizada.",
       "reauth_successful": "Reconectado correctamente."
     }

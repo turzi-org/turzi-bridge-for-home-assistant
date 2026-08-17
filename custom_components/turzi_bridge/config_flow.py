@@ -86,19 +86,29 @@ async def _test_mqtt_connection(
         return False
 
 
-def _build_broker_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
-    """Build the broker configuration schema with optional defaults."""
+def _build_broker_schema(
+    defaults: dict[str, Any] | None = None, include_house_id: bool = True
+) -> vol.Schema:
+    """Build the broker configuration schema with optional defaults.
+
+    `include_house_id=False` on reconfigure — see the note at that call site.
+    """
     defaults = defaults or {}
-    return vol.Schema(
-        {
-            vol.Required(CONF_BROKER, default=defaults.get(CONF_BROKER, "")): str,
-            vol.Required(CONF_PORT, default=defaults.get(CONF_PORT, DEFAULT_PORT)): int,
-            vol.Optional(CONF_USERNAME, default=defaults.get(CONF_USERNAME, "")): str,
-            vol.Optional(CONF_PASSWORD, default=defaults.get(CONF_PASSWORD, "")): str,
-            vol.Required(CONF_HOUSE_ID, default=defaults.get(CONF_HOUSE_ID, "")): str,
-            vol.Required(CONF_USE_TLS, default=defaults.get(CONF_USE_TLS, False)): bool,
-        }
-    )
+    fields: dict[Any, Any] = {
+        vol.Required(CONF_BROKER, default=defaults.get(CONF_BROKER, "")): str,
+        vol.Required(CONF_PORT, default=defaults.get(CONF_PORT, DEFAULT_PORT)): int,
+        vol.Optional(CONF_USERNAME, default=defaults.get(CONF_USERNAME, "")): str,
+        vol.Optional(
+            CONF_PASSWORD, default=defaults.get(CONF_PASSWORD, "")
+        ): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="off")
+        ),
+    }
+    if include_house_id:
+        house_id = vol.Required(CONF_HOUSE_ID, default=defaults.get(CONF_HOUSE_ID, ""))
+        fields[house_id] = str
+    fields[vol.Required(CONF_USE_TLS, default=defaults.get(CONF_USE_TLS, False))] = bool
+    return vol.Schema(fields)
 
 
 def _default_options(hass, cloud: bool = False) -> dict[str, Any]:
@@ -228,7 +238,27 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Enter a new enrollment key — options (domains, entities,
         blocklist) are preserved; only the connection is re-provisioned."""
-        entry = self._get_reauth_entry()
+        return await self._async_enroll_step(
+            "reauth_confirm",
+            self._get_reauth_entry(),
+            user_input,
+            success_reason="reauth_successful",
+        )
+
+    async def _async_enroll_step(
+        self,
+        step_id: str,
+        entry: ConfigEntry,
+        user_input: dict[str, Any] | None,
+        success_reason: str,
+    ) -> ConfigFlowResult:
+        """Re-enrollment body shared by reauth and cloud reconfigure.
+
+        `data=` replaces instead of merging: a re-provisioned entry must not
+        keep the previous `bridge_token` or `api_base_url`. `options` is not
+        passed at all, so exposure, the privacy blocklist and
+        `config_revision` survive untouched.
+        """
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -245,6 +275,19 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = err.code
             else:
                 if entry.unique_id != result.house_id:
+                    # The key enrolled a DIFFERENT house than this entry holds.
+                    # Repointing onto a house another entry already owns leaves
+                    # two entries on `house/{id}/…`: both answer every command,
+                    # both publish state, and each one's retained reconciliation
+                    # clears the other's topics. Nothing has been written yet at
+                    # this point, and nothing may be — an abort has to leave the
+                    # entry exactly as it was.
+                    if any(
+                        other.entry_id != entry.entry_id
+                        and other.unique_id == result.house_id
+                        for other in self._async_current_entries(include_ignore=False)
+                    ):
+                        return self.async_abort(reason="house_already_configured")
                     self.hass.config_entries.async_update_entry(
                         entry, unique_id=result.house_id
                     )
@@ -262,10 +305,11 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_BRIDGE_TOKEN: result.bridge_token,
                         CONF_API_BASE_URL: base_url,
                     },
+                    reason=success_reason,
                 )
 
         return self.async_show_form(
-            step_id="reauth_confirm",
+            step_id=step_id,
             data_schema=_cloud_schema(
                 entry.data.get(CONF_API_BASE_URL, DEFAULT_CLOUD_API_BASE_URL)
             ),
@@ -315,6 +359,18 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle reconfiguration of the broker settings."""
         entry = self._get_reconfigure_entry()
+
+        # Reconfigure is offered per integration, not per mode, so a cloud
+        # entry lands on this form too — and it MERGES: `mode`,
+        # `bridge_token` and `api_base_url` are not in the form, so they
+        # survive verbatim next to hand-typed broker fields. The result is a
+        # cloud entry pointing at a broker nobody provisioned that still POSTs
+        # its catalog with the old token, re-raising `token_revoked` on every
+        # 401. And the `unlinked` repair sends the installer here by name.
+        # Cloud entries re-provision; their connection is never edited by hand.
+        if entry.data.get(CONF_MODE) == "cloud":
+            return await self.async_step_reconfigure_cloud()
+
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -336,14 +392,37 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             if not errors:
                 return self.async_update_reload_and_abort(
                     entry,
-                    title=f"turzi Bridge for Home Assistant — {user_input[CONF_HOUSE_ID]}",
+                    title=f"turzi Bridge for Home Assistant — {entry.data[CONF_HOUSE_ID]}",
                     data_updates=user_input,
                 )
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=_build_broker_schema(defaults=dict(entry.data)),
+            # No house_id field. It is the MQTT topic prefix — `house/{id}/
+            # state/…`, `house/{id}/command/#`, availability — so editing it
+            # in place moves the entry to a new prefix while everything
+            # already retained under the old one stays on the broker forever:
+            # `_reconcile_retained_state` only ever reaches the CURRENT
+            # prefix, so the stale state topics and the retained `online`
+            # availability outlive every client that could clear them. The
+            # entry's unique_id would go stale too, freeing a second entry for
+            # the same house. A different house is a new entry, not an edit.
+            data_schema=_build_broker_schema(
+                defaults=dict(entry.data), include_house_id=False
+            ),
             errors=errors,
+        )
+
+    async def async_step_reconfigure_cloud(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Cloud entries reconfigure by re-provisioning: the enrollment form
+        reauth uses, reached from Reconfigure instead of from an unlink."""
+        return await self._async_enroll_step(
+            "reconfigure_cloud",
+            self._get_reconfigure_entry(),
+            user_input,
+            success_reason="reconfigure_successful",
         )
 
     @staticmethod
