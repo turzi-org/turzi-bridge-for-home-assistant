@@ -23,7 +23,15 @@ CONF_MODE = "mode"  # "cloud" | "manual"
 CONF_BRIDGE_TOKEN = "bridge_token"
 CONF_API_BASE_URL = "api_base_url"
 CONF_ENROLLMENT_TOKEN = "enrollment_key"
-DEFAULT_CLOUD_API_BASE_URL = "https://api.turzi.cloud/api/v2"
+# `turzi.cloud` es infraestructura máquina-a-máquina (broker, relays, media);
+# la API vive en `turzi.com`. `api.turzi.cloud` resuelve a OTRA máquina y
+# contesta 404 en /api/v2: el default apuntaba a algo que no es esta API.
+#
+# OJO: cambiar esto NO migra a nadie. La URL se guarda POR INSTALACIÓN en el
+# `.storage` de cada Home Assistant cuando se enrola, así que este valor sólo
+# lo ve un enrolamiento nuevo. Para mover un bridge ya instalado hay que
+# reconfigurarlo en su propio HA.
+DEFAULT_CLOUD_API_BASE_URL = "https://api.dev.turzi.com/api/v2"
 
 # Options entry keys (stored in entry.options)
 CONF_INCLUDED_DOMAINS = "included_domains"
