@@ -65,13 +65,18 @@ async def _test_mqtt_connection(
 ) -> bool:
     """Test the MQTT broker connection."""
     try:
-        tls_params = ssl.create_default_context() if use_tls else None
+        # `tls_context`, no `tls_params` — ver la nota larga en
+        # `mqtt_bridge._connection_loop`. Acá el efecto era peor: el except de
+        # abajo se traga TODO, así que contra un broker con TLS este test
+        # devolvía False y la pantalla decía "no se pudo conectar" cuando lo que
+        # había fallado era nuestro propio argumento.
+        tls_context = ssl.create_default_context() if use_tls else None
         async with aiomqtt.Client(
             hostname=broker,
             port=port,
             username=username or None,
             password=password or None,
-            tls_params=tls_params,
+            tls_context=tls_context,
             timeout=10,
         ):
             pass

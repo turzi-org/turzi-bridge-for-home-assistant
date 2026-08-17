@@ -371,14 +371,25 @@ class TurziMqttBridge:
 
         while not self._stopping:
             try:
-                tls_params = ssl.create_default_context() if self._use_tls else None
+                # `tls_context`, NO `tls_params`: en aiomqtt son dos argumentos
+                # distintos. `tls_params` espera un `aiomqtt.TLSParameters`
+                # (rutas a certificados); un `ssl.SSLContext` va en
+                # `tls_context`. Pasarlo por el lugar equivocado hacía que
+                # aiomqtt buscara `.ca_certs` sobre el contexto y reventara con
+                # AttributeError antes de mandar un solo paquete.
+                #
+                # No se notó nunca porque esta rama sólo corre con TLS, y hasta
+                # ahora el único broker era el de la LAN en 1883 sin TLS: con
+                # `_use_tls` en false esto era None y el camino estaba muerto.
+                # Contra el primer broker con TLS falla en el acto, y en bucle.
+                tls_context = ssl.create_default_context() if self._use_tls else None
 
                 async with aiomqtt.Client(
                     hostname=self._broker,
                     port=self._port,
                     username=self._username,
                     password=self._password,
-                    tls_params=tls_params,
+                    tls_context=tls_context,
                     keepalive=60,
                     will=aiomqtt.Will(
                         topic=f"house/{self._house_id}/availability",
