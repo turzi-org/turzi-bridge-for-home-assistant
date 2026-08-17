@@ -75,7 +75,10 @@
       "token_invalid": "This enrollment key is unknown, expired, or already used. Generate a new one in the Turzi Community Manager.",
       "rate_limited": "Too many attempts. Please wait a few minutes and try again.",
       "home_not_ready": "This home is not ready for enrollment yet — ask your community manager to configure its smart home connection.",
-      "unknown": "An unexpected error occurred."
+      "unknown": "An unexpected error occurred.",
+      "broker_not_configured": "The community's MQTT broker has no dynsec admin credential loaded, so no per-home credential can be minted. Load it for that broker in the Admin Panel (Brokers MQTT) and try again.",
+      "community_has_no_smart_home_connection": "This community has no MQTT broker assigned yet. Assign one in the Admin Panel, then try again.",
+      "invalid_request": "The server rejected the request. Check that the installation key was pasted whole."
     },
     "abort": {
       "already_configured": "This house ID is already configured.",

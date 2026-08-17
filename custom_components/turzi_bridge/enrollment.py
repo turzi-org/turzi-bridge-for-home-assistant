@@ -61,15 +61,36 @@ async def async_enroll(
     url = f"{base_url.rstrip('/')}/bridge/enroll"
     try:
         async with session.post(url, json=payload, timeout=ENROLL_TIMEOUT) as resp:
+            # El servidor manda un código estable en el cuerpo: {"error": "..."}.
+            # Se lee ANTES de decidir, porque es más específico que el status.
+            server_code: str | None = None
+            if resp.status != 200:
+                try:
+                    server_code = (await resp.json()).get("error")
+                except Exception:  # noqa: BLE001 — cuerpo vacío o no-JSON
+                    server_code = None
+
             if resp.status == 429:
                 raise EnrollmentError("rate_limited")
             if resp.status in (404, 410):
                 raise EnrollmentError("token_invalid")
             if resp.status == 409:
-                raise EnrollmentError("home_not_ready")
+                # 409 es "la comunidad todavía no está lista", pero el motivo
+                # varía: sin broker asignado, o con broker pero sin credencial
+                # de dynsec cargada. Son arreglos distintos, así que se pasa el
+                # código del servidor cuando viene uno.
+                raise EnrollmentError(server_code or "home_not_ready")
             if resp.status != 200:
-                _LOGGER.error("Enrollment failed with HTTP %s", resp.status)
-                raise EnrollmentError("cannot_connect")
+                # Antes: cualquier status no contemplado se aplanaba a
+                # "cannot_connect", que dice "revisá tu red" — y mandaba a mirar
+                # donde no estaba el problema. Si el servidor se explicó, se le
+                # cree; el status queda en el log igual.
+                _LOGGER.error(
+                    "Enrollment failed with HTTP %s (server code: %s)",
+                    resp.status,
+                    server_code or "none",
+                )
+                raise EnrollmentError(server_code or "cannot_connect")
             body = await resp.json()
     except EnrollmentError:
         raise

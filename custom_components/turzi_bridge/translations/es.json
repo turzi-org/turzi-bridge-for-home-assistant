@@ -75,7 +75,10 @@
       "token_invalid": "Este código de instalación es desconocido, expiró o ya fue usado. Generá uno nuevo en el Turzi Community Manager.",
       "rate_limited": "Demasiados intentos. Esperá unos minutos y volvé a intentar.",
       "home_not_ready": "Esta comunidad todavía no está lista para la instalación — pedile al administrador que configure su conexión de smart home.",
-      "unknown": "Ocurrió un error inesperado."
+      "unknown": "Ocurrió un error inesperado.",
+      "broker_not_configured": "El broker MQTT de la comunidad no tiene cargada su credencial de dynsec, así que no se puede acuñar la credencial de esta casa. Cargala para ese broker en el panel de administración (Brokers MQTT) y probá de nuevo.",
+      "community_has_no_smart_home_connection": "Esta comunidad todavía no tiene un broker MQTT asignado. Asignale uno desde el panel de administración y probá de nuevo.",
+      "invalid_request": "El servidor rechazó el pedido. Fijate que el código de instalación esté pegado entero."
     },
     "abort": {
       "already_configured": "Este ID de casa ya está configurado.",
