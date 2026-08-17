@@ -168,21 +168,41 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             except EnrollmentError as err:
                 errors["base"] = err.code
             else:
+                datos = {
+                    CONF_MODE: "cloud",
+                    CONF_BROKER: result.mqtt_host,
+                    CONF_PORT: result.mqtt_port,
+                    CONF_USERNAME: result.mqtt_username,
+                    CONF_PASSWORD: result.mqtt_password,
+                    CONF_HOUSE_ID: result.house_id,
+                    CONF_USE_TLS: result.mqtt_tls,
+                    CONF_BRIDGE_TOKEN: result.bridge_token,
+                    CONF_API_BASE_URL: base_url,
+                }
                 await self.async_set_unique_id(result.house_id)
-                self._abort_if_unique_id_configured()
+
+                # `updates=` NO es un detalle: enrolar ya fue DESTRUCTIVO del
+                # lado del servidor cuando llegamos acá. `enroll` revoca la fila
+                # del bridge anterior y vuelve a acuñar la contraseña MQTT, así
+                # que para cuando sabemos que esta casa ya tenía una entrada, la
+                # instalación que había quedó muerta: su token no vale y su
+                # contraseña ya no existe en el broker.
+                #
+                # Abortar sin más —lo que hacía antes— dejaba esa entrada con
+                # credenciales viejas y sin forma de recuperarse salvo borrarla
+                # y volver a enrolar con OTRA llave, porque la primera ya se
+                # consumió. O sea: reintentar un enrolamiento sobre una casa que
+                # ya andaba la rompía.
+                #
+                # No se puede chequear antes: `house_id` sale de la respuesta.
+                # Así que se adopta lo recién acuñado en la entrada existente y
+                # se recarga, que es lo que el servidor ya dio por hecho.
+                self._abort_if_unique_id_configured(
+                    updates=datos, reload_on_update=True
+                )
                 return self.async_create_entry(
                     title=f"turzi Bridge for Home Assistant — {result.house_id}",
-                    data={
-                        CONF_MODE: "cloud",
-                        CONF_BROKER: result.mqtt_host,
-                        CONF_PORT: result.mqtt_port,
-                        CONF_USERNAME: result.mqtt_username,
-                        CONF_PASSWORD: result.mqtt_password,
-                        CONF_HOUSE_ID: result.house_id,
-                        CONF_USE_TLS: result.mqtt_tls,
-                        CONF_BRIDGE_TOKEN: result.bridge_token,
-                        CONF_API_BASE_URL: base_url,
-                    },
+                    data=datos,
                     options=_default_options(self.hass, cloud=True),
                 )
 

@@ -582,12 +582,25 @@ class TurziMqttBridge:
             payload["attributes"] = attributes
 
         try:
-            await client.publish(
-                topic,
-                payload=json.dumps(payload),
-                qos=1,
-                retain=True,
+            # `default=str` porque un atributo de HA no siempre es serializable:
+            # `automation.last_triggered` llega como `datetime`, y hay dominios
+            # que traen Enum o tuplas. Sin esto `json.dumps` tira `TypeError`,
+            # que NO es MqttError, así que se escapaba de este try, subía hasta
+            # el handler genérico del bucle de conexión y dejaba la casa en
+            # reconexión perpetua. Un objeto raro en un atributo no puede tirar
+            # abajo el puente entero.
+            body = json.dumps(payload, default=str)
+        except (TypeError, ValueError) as err:
+            # Ni siquiera con `default=str` — referencia circular, por ejemplo.
+            # Se saltea ESTA entidad y se sigue: perder un estado es mucho menos
+            # grave que perder la conexión.
+            _LOGGER.warning(
+                "Skipping %s: its state could not be serialized (%s)", entity_id, err
             )
+            return
+
+        try:
+            await client.publish(topic, payload=body, qos=1, retain=True)
             self._published_entities.add(entity_id)
         except aiomqtt.MqttError:
             _LOGGER.warning("Failed to publish state for %s", entity_id)
