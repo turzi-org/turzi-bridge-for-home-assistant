@@ -143,7 +143,12 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     - manual: enter broker details directly (self-hosted / local mode).
     """
 
-    VERSION = 1
+    # 2: `included_domains` changed meaning. Under v1 it only filtered which
+    # NEW entities auto-add was allowed to append to `exposed_entities`, and
+    # `should_expose` was pure set membership against that list. Now a listed
+    # domain is exposed wholesale. Same key, opposite blast radius — see
+    # `async_migrate_entry` in __init__.py.
+    VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -362,8 +367,23 @@ class TurziOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Manage exposure and privacy options."""
         if user_input is not None:
+            # Merge, never replace. `async_create_entry` in an options flow is
+            # a FULL overwrite —  HA's `OptionsFlowManager.async_finish_flow`
+            # calls `async_update_entry(entry, options=result["data"])` — so a
+            # literal dict here silently deletes every key this form does not
+            # draw. Today that is `config_revision`, the last exposure revision
+            # applied from the platform (PROTOCOL.md §5).
+            #
+            # Losing it is not cosmetic: it re-arms the replay this bridge just
+            # acked. `cloud.async_apply_exposure` skips a revision when
+            # `revision <= (options.get(CONF_CONFIG_REVISION) or 0)`; with the
+            # key gone that reads `revision <= 0`, false for every real
+            # revision, so the next catalog round-trip re-applies the
+            # platform's exposure over the edit that was just saved — about ten
+            # seconds after the installer saved it, with no error anywhere.
             return self.async_create_entry(
                 data={
+                    **self.config_entry.options,
                     CONF_INCLUDED_DOMAINS: user_input.get(
                         CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
                     ),

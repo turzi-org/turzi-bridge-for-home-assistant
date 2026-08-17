@@ -32,6 +32,7 @@ from homeassistant.core import (
 )
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.storage import Store
 
 from .const import (
     ALARM_MODE_MAP,
@@ -57,6 +58,12 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Storage for the retained-topic ledger (see `_published_entities`).
+_PUBLISHED_STORE_VERSION = 1
+# Publishing hundreds of states on connect must not mean hundreds of disk
+# writes, so saves are debounced by this many seconds.
+_PUBLISHED_SAVE_DELAY = 10
 
 # Reconnection backoff parameters
 _RECONNECT_MIN_DELAY = 5
@@ -105,8 +112,15 @@ class TurziMqttBridge:
         self._unsub_registry_listener: callback | None = None
         self._stopping = False
 
-        # Track entity_ids that have been published to MQTT (for cleanup)
+        # Entity_ids believed to hold a RETAINED payload on the broker right
+        # now. Persisted (see `_store`), because it is the only record of what
+        # has to be cleaned up and the broker keeps retained messages across
+        # our restarts — an in-memory set starts empty every HA run and turns
+        # every entity un-exposed while we were down into a permanent ghost.
         self._published_entities: set[str] = set()
+        self._store: Store[list[str]] = Store(
+            hass, _PUBLISHED_STORE_VERSION, f"{DOMAIN}.{entry_id}.published"
+        )
 
         # Protocol v1.1 — command dedupe: command_id -> monotonic receipt time.
         # Retention must be >= the TTL ceiling (PROTOCOL v1.1 §2) or a late
@@ -202,6 +216,11 @@ class TurziMqttBridge:
 
         Entities leaving the effective exposed set (including newly
         privacy-blocked ones) get their retained state cleaned up.
+
+        When there is no connection the cleanup is not lost, only deferred:
+        those entities stay in `_published_entities`, which is persisted, so
+        `_reconcile_retained_state` clears them on the next connect — even if
+        that is after a restart.
         """
         old_exposed = set(self._published_entities)
 
@@ -265,6 +284,10 @@ class TurziMqttBridge:
     async def async_start(self) -> None:
         """Start the MQTT bridge."""
         self._stopping = False
+        # Before anything can publish: recover what we left retained on the
+        # broker last run, so the first connect can tell "still exposed" from
+        # "left behind" (see `_reconcile_retained_state`).
+        await self._async_load_published()
         self._setup_state_listener()
         self._setup_reload_listener()
         self._setup_registry_listener()
@@ -310,6 +333,18 @@ class TurziMqttBridge:
             except asyncio.CancelledError:
                 pass
             self._connection_task = None
+
+        # Flush the ledger now rather than leaving up to _PUBLISHED_SAVE_DELAY
+        # seconds of it unwritten. HA's own final-write event covers a full
+        # shutdown, but a reload or a config-entry unload is not one, and the
+        # next run's reconcile is only as good as what got written.
+        try:
+            await self._store.async_save(sorted(self._published_entities))
+        except Exception:  # noqa: BLE001 — never block unload on a disk error
+            _LOGGER.warning(
+                "Could not persist the retained-topic ledger for house '%s'",
+                self._house_id,
+            )
 
         _LOGGER.info("Turzi MQTT bridge stopped for house '%s'", self._house_id)
 
@@ -413,6 +448,9 @@ class TurziMqttBridge:
 
                     await self._subscribe_topics(client)
                     await self._publish_availability(client, "online")
+                    # Clear first, then publish: the broker never holds both
+                    # the stale payload and the fresh one.
+                    await self._reconcile_retained_state(client)
                     await self._publish_all_current_states(client)
 
                     async for message in client.messages:
@@ -492,6 +530,76 @@ class TurziMqttBridge:
             unlink_topic = f"house/{self._house_id}/config/unlink"
             await client.subscribe(unlink_topic, qos=1)
             _LOGGER.debug("Subscribed to %s", unlink_topic)
+
+    # -------------------------------------------------------------------------
+    # Retained-topic ledger
+    # -------------------------------------------------------------------------
+
+    async def _async_load_published(self) -> None:
+        """Restore the set of entities believed retained on the broker."""
+        try:
+            stored = await self._store.async_load()
+        except Exception:  # noqa: BLE001 — a corrupt ledger must not block startup
+            _LOGGER.warning(
+                "Could not read the retained-topic ledger for house '%s'; "
+                "starting empty. Stale retained state may survive until the "
+                "affected entities are exposed and un-exposed again.",
+                self._house_id,
+            )
+            return
+        if stored:
+            self._published_entities = set(stored)
+
+    @callback
+    def _save_published(self) -> None:
+        """Persist the ledger, debounced."""
+        self._store.async_delay_save(
+            lambda: sorted(self._published_entities), _PUBLISHED_SAVE_DELAY
+        )
+
+    async def _reconcile_retained_state(self, client: aiomqtt.Client) -> None:
+        """Clear retained topics for anything no longer exposed.
+
+        This is what makes the privacy floor hold across an outage. Exposure
+        can narrow — an exposure revision from the platform, an options edit,
+        an entity added to `never_expose`, an entity deleted from HA — at
+        moments when there is no connection to act on it, and it can narrow
+        while HA is not running at all. In both cases the entity keeps its
+        retained payload on `house/{id}/state/...` and the app keeps showing a
+        device that is meant to be gone, forever: nothing else ever revisits
+        it, because `_publish_all_current_states` only publishes what IS
+        exposed and never clears what stopped being.
+
+        Running on every connect covers all of those with one rule, and also
+        retries removals that previously failed mid-publish — a failed
+        `_remove_entity_from_mqtt` deliberately leaves the entity in the
+        ledger, so it simply comes back around here.
+
+        Measured against the state machine, not the ledger's own idea of
+        exposure, so an entity that has disappeared from HA entirely (renamed,
+        deleted, integration removed) is cleaned up too. Erring toward
+        clearing is the safe direction: a live entity wrongly cleared is
+        republished by its next state change, while one wrongly left behind is
+        a device the resident cannot see, cannot control, and cannot remove.
+        """
+        live = {
+            state.entity_id
+            for state in self.hass.states.async_all()
+            if self.should_expose(state.entity_id)
+        }
+        stale = self._published_entities - live
+        if not stale:
+            return
+
+        _LOGGER.info(
+            "Clearing %d retained topic(s) for house '%s' left by entities that "
+            "are no longer exposed: %s",
+            len(stale),
+            self._house_id,
+            ", ".join(sorted(stale)),
+        )
+        for entity_id in sorted(stale):
+            await self._remove_entity_from_mqtt(client, entity_id)
 
     async def _publish_all_current_states(self, client: aiomqtt.Client) -> None:
         """Publish the current state of all exposed entities.
@@ -601,7 +709,9 @@ class TurziMqttBridge:
 
         try:
             await client.publish(topic, payload=body, qos=1, retain=True)
-            self._published_entities.add(entity_id)
+            if entity_id not in self._published_entities:
+                self._published_entities.add(entity_id)
+                self._save_published()
         except aiomqtt.MqttError:
             _LOGGER.warning("Failed to publish state for %s", entity_id)
 
@@ -624,8 +734,12 @@ class TurziMqttBridge:
                 retain=True,
             )
             self._published_entities.discard(entity_id)
+            self._save_published()
             _LOGGER.debug("Removed MQTT retained message for %s", entity_id)
         except aiomqtt.MqttError:
+            # Deliberately NOT discarded: the retained payload is still on the
+            # broker, so the entity has to stay in the ledger for the next
+            # connect's reconcile pass to retry it.
             _LOGGER.warning("Failed to remove MQTT message for %s", entity_id)
 
     # -------------------------------------------------------------------------

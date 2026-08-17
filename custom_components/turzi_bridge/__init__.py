@@ -109,6 +109,67 @@ async def async_unload_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bo
     return True
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bool:
+    """Migrate a config entry to the current schema version.
+
+    **v1 → v2 — `included_domains` changed meaning, and the change opens up.**
+
+    Under v1, `should_expose` was `entity_id in self._exposed_entities`, full
+    stop; `included_domains` was only the filter deciding which NEWLY created
+    entities auto-add was allowed to append to that list. A resident who
+    unchecked `light.dormitorio` was done — the domain list had no say.
+
+    Now a listed domain is exposed wholesale, so carrying the old value over
+    verbatim would re-expose every entity in ~10 domains, including the exact
+    ones somebody deliberately unchecked, without asking and without a trace.
+    That is a privacy regression, and it is silent, which is the worst kind:
+    the resident's phone gains devices and nothing announces it.
+
+    So the migration keeps the effective exposure identical instead of the
+    stored value identical: `exposed_entities` was the complete truth about
+    what was published, and an empty `included_domains` makes v2's rule
+    collapse back to exactly that set. Wholesale exposure stays available and
+    off, one deliberate edit away in Exposure & privacy.
+
+    Two kinds of v1 entry must NOT be touched, and both would be wrecked by
+    clearing the list:
+
+    - **Entries already created by this branch.** VERSION was bumped after the
+      new exposure model shipped, so entries enrolled against it are stamped
+      v1 while their `included_domains` already means wholesale — and their
+      `exposed_entities` is `[]`, since it now holds manual additions only.
+      Clearing would leave them exposing nothing at all. They are told apart
+      by `mode` in `entry.data`: this branch stamps it on every entry it
+      creates (cloud and manual alike) and v1 had no such key.
+    - **The pre-`exposed_entities` label schema**, which has no per-entity
+      curation to protect: there `included_domains` IS the whole intent, so it
+      is left for `_async_migrate_options` to seed from.
+    """
+    if entry.version == 1:
+        options = dict(entry.options)
+        pre_branch = CONF_MODE not in entry.data
+        curated = CONF_EXPOSED_ENTITIES in options
+        previous = options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS)
+
+        if pre_branch and curated:
+            options[CONF_INCLUDED_DOMAINS] = []
+            _LOGGER.warning(
+                "turzi Bridge: '%s' upgraded to the new exposure model. Listed "
+                "domains are now exposed wholesale, so the previous list (%s) "
+                "was cleared to keep exposure exactly as it is today — the %d "
+                "entities already chosen, nothing new. Re-add domains under "
+                "Settings → Devices → turzi Bridge → Configure to expose them "
+                "wholesale.",
+                entry.data.get("house_id", "unknown"),
+                ", ".join(sorted(previous)) or "none",
+                len(options.get(CONF_EXPOSED_ENTITIES) or []),
+            )
+
+        hass.config_entries.async_update_entry(entry, options=options, version=2)
+
+    return True
+
+
 async def _async_migrate_options(hass: HomeAssistant, entry: TurziConfigEntry) -> None:
     """Seed exposed_entities from included_domains for entries without it.
 
