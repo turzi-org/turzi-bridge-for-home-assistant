@@ -24,6 +24,7 @@ import aiohttp
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.loader import async_get_integration
@@ -53,6 +54,32 @@ CATALOG_TIMEOUT = aiohttp.ClientTimeout(total=30)
 CAPABILITIES = ["remote_config"]
 
 
+def _device_of(devices: dr.DeviceRegistry, device_id: str | None) -> dict[str, Any] | None:
+    """The Home Assistant device an entity belongs to, as the catalog reports it.
+
+    BRIDGE_CLOUD_API.md §3, `device`. The platform groups entities into devices
+    by this id (INTEGRATIONS.md §3.9) for its Dispositivos tab — health,
+    diagnostics, suggestions — and never lets a device fill a fixture role, so
+    this is grouping and nothing more. Before it, the platform saw every HA
+    entity flat and could not tell that four of them were one Shelly.
+
+    str() on the name for the reason given on the entity names below: the
+    platform's catalog must not depend on a registry holding a string there.
+    """
+    if not device_id:
+        return None
+    device = devices.async_get(device_id)
+    if device is None:
+        return None
+    return {
+        "id": device.id,
+        "name": str(device.name_by_user or device.name or device.id),
+        "manufacturer": device.manufacturer,
+        "model": device.model,
+        "sw_version": device.sw_version,
+    }
+
+
 def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any]]:
     """Build the entity catalog: the bridge's actual publish scope.
 
@@ -66,6 +93,7 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
     included = set(entry.options.get(CONF_INCLUDED_DOMAINS, []))
 
     registry = er.async_get(hass)
+    devices = dr.async_get(hass)
     entities: list[dict[str, Any]] = []
     for reg_entry in registry.entities.values():
         if reg_entry.disabled_by:
@@ -101,6 +129,7 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
                 "locally_blocked": reg_entry.entity_id in blocked,
                 "last_seen": state.last_updated.isoformat() if state else None,
                 "added_on": created_at.isoformat() if created_at else None,
+                "device": _device_of(devices, reg_entry.device_id),
             }
         )
 
@@ -137,6 +166,9 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
                 "locally_blocked": state.entity_id in blocked,
                 "last_seen": state.last_updated.isoformat(),
                 "added_on": None,
+                # No registry entry, so no device either: the device id lives on
+                # the entity's registry entry.
+                "device": None,
             }
         )
 
@@ -153,6 +185,7 @@ class TurziCloudSync:
         self._debounce_task: asyncio.Task | None = None
         self._last_hash: str | None = None
         self._unsub_registry: callback | None = None
+        self._unsub_devices: callback | None = None
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -169,11 +202,21 @@ class TurziCloudSync:
         self._unsub_registry = self.hass.bus.async_listen(
             er.EVENT_ENTITY_REGISTRY_UPDATED, _on_registry_updated
         )
+        # The catalog now carries each entity's DEVICE, and renaming a device —
+        # or HA learning its firmware — changes the device registry, not the
+        # entity registry. Without this the platform would show the old name
+        # until some unrelated entity changed.
+        self._unsub_devices = self.hass.bus.async_listen(
+            dr.EVENT_DEVICE_REGISTRY_UPDATED, _on_registry_updated
+        )
 
     def stop(self) -> None:
         if self._unsub_registry:
             self._unsub_registry()
             self._unsub_registry = None
+        if self._unsub_devices:
+            self._unsub_devices()
+            self._unsub_devices = None
         if self._debounce_task and not self._debounce_task.done():
             self._debounce_task.cancel()
 
