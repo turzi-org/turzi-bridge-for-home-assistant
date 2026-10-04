@@ -5,6 +5,7 @@
 
 > **v1.1 (2026-08-08)** adds — all additively (a v1.0 core remains valid; consumers must tolerate the absence of every v1.1 feature): availability (LWT), command identifiers with TTL/expiry, command acknowledgments, origin attribution on state updates, the exposure-configuration topic, and the deployment-modes appendix. The v1.0 heartbeat is deprecated in favor of availability.
 > *Amended 2026-08-09* with informative guidance from the first production-shaped deployment: client practice for acks, consumer guidance for event-sourcing the state stream, attributes as the capability surface, and the deployment scope of `house_id`.
+> *Amended 2026-10-04*, informative only: the consumer guidance no longer says a uniqueness constraint catches every replay. It misses the clock-less LWT and a core restart's re-stamped `last_changed`; after a restart a consumer takes the old state from its own ledger.
 
 The Turzi Protocol defines a standardized communication interface between the **Turzi mobile app** and any **smart home core** (Home Assistant, Hubitat, custom implementations). It is transport-agnostic — the protocol core defines what is communicated, while transport bindings define how messages travel.
 
@@ -92,8 +93,9 @@ Consumers MUST tolerate a missing `origin` (v1.0 cores) and treat it as `unknown
 A platform building an audit ledger from this stream must treat it as at-least-once with replays, because that is what it is:
 
 - **Idempotency is mandatory.** Retained states replay on *every* consumer reconnect, and QoS 1 re-delivers. Dedupe on `(house, entity, last_changed, event kind)` — enforced by a uniqueness constraint at the storage layer, not by consumer memory.
-- **Old-state is consumer memory.** The stream carries the new state; "old → new" derivation lives in the consumer and resets on restart. Dedupe must never depend on the derived old state.
+- **Old-state is consumer memory, and memory resets on restart.** The stream carries the new state; "old → new" derivation lives in the consumer. Dedupe must therefore never depend on memory alone: after a restart, take the old state from the consumer's own ledger — its last stored state for the entity as of the message's `last_changed` — or every replay reads as a change from nothing.
 - **Availability ordering.** The `online` payload carries a core-clock timestamp; the LWT `offline` is broker-emitted without one. Mixing the two clocks can invert orderings within a second — order availability events by **receipt time**, not payload time.
+- **The constraint cannot see every replay.** The LWT `offline` has no clock, so stamped on receipt it is new to the constraint on every reconnect: compare a retained availability message (the broker flags replays `retain`, and only replays) with the last *stored* state instead. A core restart re-stamps `last_changed` without changing the state, so its replay is new to the constraint too; the old state taken from the ledger (above) is what shows it is no change. And never derive a fresh observation from a retained message — a dead core's last sensor value, stamped on receipt, reads as current.
 - **Resolve attribution at read time.** The state echo routinely arrives *before* a command's publisher has persisted its attribution record (the echo is ~tens of ms; the write is a database round-trip). Ingest-time actor resolution is best-effort; the authoritative join from `origin.command_id` to the actor belongs at query time.
 
 ### Command Payload
