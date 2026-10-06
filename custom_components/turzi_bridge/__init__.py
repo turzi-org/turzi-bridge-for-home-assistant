@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.config_entries import ConfigEntry
+from types import MappingProxyType
+
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
@@ -20,18 +21,34 @@ from .const import (
     CONF_AUTO_ADD_NEW,
     CONF_BRIDGE_TOKEN,
     CONF_CONFIG_REVISION,
-    CONF_EXPOSED_ENTITIES,
-    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
-    CONF_INCLUDED_DOMAINS,
+    CONF_FILTER_SNAPSHOT,
     CONF_MODE,
-    CONF_NEVER_EXPOSE,
     DEFAULT_AUTO_ADD_NEW,
-    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
-    DEFAULT_INCLUDED_DOMAINS,
     DOMAIN,
+    DOOR_AND_SAFETY_CLASSES,
+    FILTER_DEVICE_CLASSES,
+    FILTER_DOMAIN,
+    FILTER_ENTITIES,
+    LEGACY_BINARY_SENSOR_CLASSES,
+    LEGACY_DEFAULT_INCLUDED_DOMAINS,
+    LEGACY_EXPOSED_ENTITIES,
+    LEGACY_INCLUDED_DOMAINS,
+    LEGACY_NEVER_EXPOSE,
     SIGNAL_CONFIG_UPDATED,
+    SUBENTRY_DOMAIN_FILTER,
+    SUBENTRY_ENTITY_FILTER,
+    SUBENTRY_EXCLUSION,
 )
 from .mqtt_bridge import TurziMqttBridge
+from .scope import (
+    blocked_of,
+    domain_filter_title,
+    entity_names,
+    filters_of,
+    join_names,
+    scope_of,
+    take_snapshot,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,12 +57,6 @@ type TurziConfigEntry = ConfigEntry
 
 async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bool:
     """Set up turzi Bridge from a config entry."""
-
-    # One-time migration: seed exposed_entities for entries that used the old
-    # label-based options schema (which had no exposed_entities key).
-    if CONF_EXPOSED_ENTITIES not in entry.options:
-        await _async_migrate_options(hass, entry)
-
     bridge = TurziMqttBridge.from_config_entry(hass, entry)
 
     hass.data.setdefault(DOMAIN, {})
@@ -104,6 +115,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
         record = hass.data.get(DOMAIN, {}).get(entry.entry_id)
         if record is None or record.get("bridge") is not bridge:
             return
+        # An entry that holds its filters to a snapshot but has none yet (it
+        # came through the migration) takes it now, when every integration has
+        # written its states: taken earlier it would miss entities, and they
+        # would stop being published.
+        ensure_snapshot(hass, entry, bridge)
         await bridge.async_start()
         # Re-read instead of reusing the snapshot above. `async_start` awaits
         # real disk I/O (the retained-topic ledger), and an unload landing in
@@ -129,6 +145,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
         entry.data.get("house_id", "unknown"),
     )
     return True
+
+
+def ensure_snapshot(hass: HomeAssistant, entry: TurziConfigEntry, bridge: TurziMqttBridge) -> None:
+    """Take the snapshot of an entry that holds its filters to one but has none.
+
+    That is an entry that came through the migration with automatic exposure
+    off. It is called once every integration has written its states: taken
+    earlier, the snapshot would miss entities, and they would stop being
+    published.
+    """
+    if entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW):
+        return
+    if entry.options.get(CONF_FILTER_SNAPSHOT) is not None:
+        return
+    options = {**entry.options, CONF_FILTER_SNAPSHOT: take_snapshot(hass, filters_of(entry))}
+    hass.config_entries.async_update_entry(entry, options=options)
+    bridge.update_config(scope=scope_of(entry, options), never_expose=sorted(blocked_of(entry)))
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bool:
@@ -198,33 +231,50 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> b
       creates (cloud and manual alike) and v1 had no such key.
     - **The pre-`exposed_entities` label schema**, which has no per-entity
       curation to protect: there `included_domains` IS the whole intent, so it
-      is left for `_async_migrate_options` to seed from.
+      is left for the v2 → v3 step, which turns it into domain filters.
 
-    **v2.1 → v2.2 — door contacts and life-safety sensors are exposed by class.**
+    **v2 → v3 — exposure becomes subentries.**
 
-    `binary_sensor` is a noisy domain, so no building published a door contact
-    unless somebody added it by hand, and the platform cannot ask for an entity
-    its catalog never listed (turzi-apps DEFERRED_WORK.md D54). v3 adds
-    `included_binary_sensor_classes`, seeded with the door and life-safety
-    classes (`DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES`). A minor version,
-    because an older bridge reading a 2.2 entry simply ignores the new key, so
-    a downgrade still loads.
+    Domain filters, entity filters and exclusions are each a subentry, so Home
+    Assistant lists them on the bridge's page with an add button per type and
+    a delete action per row. The v2 keys translate without changing what is
+    published:
 
-    Unlike v1 → v2 this one DOES widen what an existing installation publishes,
-    and on purpose: it is the decision (Santiago, 2026-10-06), not a side
-    effect of a renamed key. It is not silent: the log says what is now
-    published and how to undo it. The privacy blocklist still wins, so a
-    sensor somebody blocked stays unpublished. An entry that already lists the
-    key keeps its own value.
+    - every `included_domains` entry becomes a domain filter;
+    - `exposed_entities` become one entity filter;
+    - `never_expose` becomes one exclusion;
+    - `included_binary_sensor_classes` (2.2, never released) becomes a
+      binary_sensor domain filter with those classes;
+    - `auto_add_new` stays. An entry with it off takes its snapshot at its
+      first start (`ensure_snapshot`), so what it publishes today stays
+      published.
+
+    One thing is added on purpose, logged: unless the entry already includes
+    binary sensors, it gains a binary_sensor filter for the door and
+    life-safety classes (`DOOR_AND_SAFETY_CLASSES`), because the platform's
+    open-door alert has no other input and could not ask for one (Santiago,
+    2026-10-06; turzi-apps DEFERRED_WORK.md D54). Exclusions still win.
+
+    A major version, because an older bridge cannot read subentries. This one
+    refuses entries from a newer bridge rather than guess at them.
     """
+    if entry.version > 3:
+        _LOGGER.error(
+            "turzi Bridge: '%s' was configured by a newer version of the bridge "
+            "(entry version %s). Update the bridge instead of downgrading it.",
+            entry.data.get("house_id", "unknown"),
+            entry.version,
+        )
+        return False
+
     if entry.version == 1:
         options = dict(entry.options)
         pre_branch = CONF_MODE not in entry.data
-        curated = CONF_EXPOSED_ENTITIES in options
-        previous = options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS)
+        curated = LEGACY_EXPOSED_ENTITIES in options
+        previous = options.get(LEGACY_INCLUDED_DOMAINS, LEGACY_DEFAULT_INCLUDED_DOMAINS)
 
         if pre_branch and curated:
-            options[CONF_INCLUDED_DOMAINS] = []
+            options[LEGACY_INCLUDED_DOMAINS] = []
             _LOGGER.warning(
                 "turzi Bridge: '%s' upgraded to the new exposure model. Listed "
                 "domains are now exposed wholesale, so the previous list (%s) "
@@ -234,86 +284,95 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> b
                 "wholesale.",
                 entry.data.get("house_id", "unknown"),
                 ", ".join(sorted(previous)) or "none",
-                len(options.get(CONF_EXPOSED_ENTITIES) or []),
+                len(options.get(LEGACY_EXPOSED_ENTITIES) or []),
             )
 
         hass.config_entries.async_update_entry(entry, options=options, version=2)
 
-    if entry.version == 2 and entry.minor_version < 2:
-        options = dict(entry.options)
-        if CONF_INCLUDED_BINARY_SENSOR_CLASSES not in options:
-            options[CONF_INCLUDED_BINARY_SENSOR_CLASSES] = list(
-                DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
+    if entry.version == 2:
+        options, items = _subentries_from_v2(dict(entry.options))
+        if not any(
+            kind == SUBENTRY_DOMAIN_FILTER and data[FILTER_DOMAIN] == "binary_sensor"
+            for kind, data in items
+        ):
+            items.append(
+                (
+                    SUBENTRY_DOMAIN_FILTER,
+                    {FILTER_DOMAIN: "binary_sensor", FILTER_DEVICE_CLASSES: list(DOOR_AND_SAFETY_CLASSES)},
+                )
             )
             _LOGGER.warning(
                 "turzi Bridge: '%s' now publishes binary sensors of these device "
                 "classes: %s. A door's contact is what the platform's open-door "
-                "alert reads, and the rest are life-safety sensors. Remove "
-                "classes under Settings → Devices → turzi Bridge → Configure, or "
-                "put a specific sensor in the privacy blocklist.",
+                "alert reads, and the rest are life-safety sensors. Delete that "
+                "filter on the bridge's page under Settings → Devices & services, "
+                "or add an exclusion for a specific sensor.",
                 entry.data.get("house_id", "unknown"),
-                ", ".join(DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES),
+                ", ".join(DOOR_AND_SAFETY_CLASSES),
             )
-        hass.config_entries.async_update_entry(entry, options=options, minor_version=2)
+        for kind, data in items:
+            hass.config_entries.async_add_subentry(
+                entry,
+                ConfigSubentry(
+                    data=MappingProxyType(data),
+                    subentry_type=kind,
+                    title=await _title(hass, kind, data),
+                    unique_id=data[FILTER_DOMAIN] if kind == SUBENTRY_DOMAIN_FILTER else None,
+                ),
+            )
+        hass.config_entries.async_update_entry(
+            entry, options=options, version=3, minor_version=1
+        )
 
     return True
 
 
-async def _async_migrate_options(hass: HomeAssistant, entry: TurziConfigEntry) -> None:
-    """Seed exposed_entities from included_domains for entries without it.
-
-    This handles upgrades from the old label-based config schema where
-    exposed_entities did not exist. We seed the list by scanning the HA
-    entity registry for entities whose domain is in included_domains.
-    """
-    included_domains: list[str] = entry.options.get(
-        CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
-    )
-    domain_set = set(included_domains)
-
-    registry = er.async_get(hass)
-    exposed: list[str] = [
-        reg_entry.entity_id
-        for reg_entry in registry.entities.values()
-        if not reg_entry.disabled_by and reg_entry.domain in domain_set
-    ]
-
-    new_options = {
-        **entry.options,
-        CONF_INCLUDED_DOMAINS: included_domains,
-        CONF_EXPOSED_ENTITIES: exposed,
-        CONF_AUTO_ADD_NEW: entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
-    }
-
-    # Strip legacy keys from old schema if present
+def _subentries_from_v2(options: dict) -> tuple[dict, list[tuple[str, dict]]]:
+    """The v2 exposure keys as subentries, and what is left of the options."""
+    included = options.pop(LEGACY_INCLUDED_DOMAINS, LEGACY_DEFAULT_INCLUDED_DOMAINS) or []
+    exposed = [e for e in options.pop(LEGACY_EXPOSED_ENTITIES, None) or [] if isinstance(e, str)]
+    blocked = [e for e in options.pop(LEGACY_NEVER_EXPOSE, None) or [] if isinstance(e, str)]
+    classes = options.pop(LEGACY_BINARY_SENSOR_CLASSES, None) or []
+    # Keys of the label-based schema older still, if an entry kept them.
     for legacy_key in ("expose_label", "label_mode", "additional_entities", "excluded_entities"):
-        new_options.pop(legacy_key, None)
+        options.pop(legacy_key, None)
 
-    hass.config_entries.async_update_entry(entry, options=new_options)
-    _LOGGER.info(
-        "Migrated config for house '%s': seeded %d exposed entities from domains %s",
-        entry.data.get("house_id", "unknown"),
-        len(exposed),
-        sorted(domain_set),
-    )
+    items: list[tuple[str, dict]] = [
+        (SUBENTRY_DOMAIN_FILTER, {FILTER_DOMAIN: domain, FILTER_DEVICE_CLASSES: []})
+        for domain in dict.fromkeys(included)
+    ]
+    if classes and "binary_sensor" not in included:
+        items.append(
+            (SUBENTRY_DOMAIN_FILTER, {FILTER_DOMAIN: "binary_sensor", FILTER_DEVICE_CLASSES: list(classes)})
+        )
+    if exposed:
+        items.append((SUBENTRY_ENTITY_FILTER, {FILTER_ENTITIES: exposed}))
+    if blocked:
+        items.append((SUBENTRY_EXCLUSION, {FILTER_ENTITIES: blocked}))
+    options.setdefault(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW)
+    return options, items
+
+
+async def _title(hass: HomeAssistant, kind: str, data: dict) -> str:
+    """A subentry's row title, as the add flows word it."""
+    if kind == SUBENTRY_DOMAIN_FILTER:
+        return await domain_filter_title(hass, data[FILTER_DOMAIN], data[FILTER_DEVICE_CLASSES])
+    return join_names(entity_names(hass, data[FILTER_ENTITIES]))
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: TurziConfigEntry) -> None:
-    """Handle options update — sync bridge config without full reload."""
+    """Handle an options or subentry change — sync bridge config without a reload.
+
+    Home Assistant runs this for every subentry added, edited or deleted, as
+    well as for options, so a filter or exclusion applies the moment it is
+    saved.
+    """
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}
     bridge: TurziMqttBridge | None = data.get("bridge")
     if bridge is None:
         return
 
-    bridge.update_config(
-        exposed_entities=entry.options.get(CONF_EXPOSED_ENTITIES, []),
-        included_domains=entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS),
-        auto_add_new=entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
-        never_expose=entry.options.get(CONF_NEVER_EXPOSE, []),
-        included_binary_sensor_classes=entry.options.get(
-            CONF_INCLUDED_BINARY_SENSOR_CLASSES, DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
-        ),
-    )
+    bridge.update_config(scope=scope_of(entry), never_expose=sorted(blocked_of(entry)))
 
     # Acknowledge the applied revision via retained availability (v1.1 §5),
     # and report effective exposure upstream when locally edited.

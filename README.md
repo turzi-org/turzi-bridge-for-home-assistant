@@ -86,10 +86,23 @@ The connection is tested before the entry is created. Broker settings can be cha
 
 ## Exposure & privacy
 
-What gets published is decided **here, at the bridge**, in the integration's options flow (**Configure** on the integration entry) — no custom panels, no YAML:
+What gets published is decided **here, at the bridge**, on the bridge's page in Home Assistant (**Settings → Devices & services → turzi Bridge**). Each filter and each exclusion is a row there, with an edit button and a delete action, and each kind has its own add button:
 
-| Setting | Effect |
+| Button | Row |
 |---|---|
+| **Add domain filter** | Every entity of a domain, or only the device classes you tick for it (a domain without classes skips that screen) |
+| **Add entity filter** | Entities you search for and add one by one, of any domain |
+| **Add exclusion** | Entities that are **never** published, even when a filter includes them, in every mode, surviving re-enrollment |
+
+An entity is published when **any filter matches it and no exclusion names it**.
+
+A new bridge starts with these domain filters, in every mode: `alarm_control_panel`, `climate`, `cover`, `fan`, `light`, `lock`, `siren`, `switch`, and `binary_sensor` limited to door contacts (`door`, `garage_door`, `opening`, `window`) and life safety (`smoke`, `gas`, `carbon_monoxide`, `moisture`). A door's contact is the only way the platform can tell a door is open, and its open-door alert reads nothing else. Helpers and scripts are not devices and stay out unless someone adds them.
+
+**Configure** (the gear on the bridge's row) holds one option, **Automatically expose new entities**, on by default. On, a new entity that matches a domain filter is published by itself. Off, domain filters cover only the entities that existed when a filter was last saved, and a new one waits until you save again.
+
+Changes apply immediately: entities leaving the exposed set get their retained state cleared (clients drop them in real time), entities entering it publish their current state. Installations set up on an earlier version are converted on update, publishing what they published before; they also gain the door and safety filter if they did not publish binary sensors, and Home Assistant's log says so.
+
+---|---|
 | **Included domains** | ALL entities in these domains are published |
 | **Binary sensor classes always included** | Binary sensors of these device classes are published even when `binary_sensor` is not an included domain. Defaults to door contacts (`door`, `garage_door`, `opening`, `window`) and life safety (`smoke`, `gas`, `carbon_monoxide`, `moisture`) |
 | **Manually exposed entities** | Individual entities published *in addition* to the included domains (e.g. one specific sensor) |

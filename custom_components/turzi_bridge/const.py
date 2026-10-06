@@ -33,26 +33,42 @@ CONF_ENROLLMENT_TOKEN = "enrollment_key"
 # reconfigurarlo en su propio HA.
 DEFAULT_CLOUD_API_BASE_URL = "https://api.dev.turzi.com/api/v2"
 
+# What is published lives in the entry's SUBENTRIES, one per item, so Home
+# Assistant lists them on the bridge's page with an add button per type and a
+# delete action per row:
+#   domain_filter  {"domain": "light"}                         every light
+#                  {"domain": "binary_sensor",
+#                   "device_classes": [...]}                    only those classes
+#   entity_filter  {"entities": ["switch.bomba", ...]}         those entities
+#   exclusion      {"entities": [...]}                         never published
+# An entity is published when any filter matches it and no exclusion names it.
+# See exposure.py and scope.py.
+SUBENTRY_DOMAIN_FILTER = "domain_filter"
+SUBENTRY_ENTITY_FILTER = "entity_filter"
+SUBENTRY_EXCLUSION = "exclusion"
+FILTER_DOMAIN = "domain"
+FILTER_DEVICE_CLASSES = "device_classes"
+FILTER_ENTITIES = "entities"
+
 # Options entry keys (stored in entry.options)
-CONF_INCLUDED_DOMAINS = "included_domains"
-CONF_EXPOSED_ENTITIES = "exposed_entities"
+#
+# On: a new entity that matches a domain filter is published by itself. Off:
+# domain filters cover only the entities in CONF_FILTER_SNAPSHOT, taken each
+# time a filter is saved, so a new one waits for the next save. Entity filters
+# name their entities and do not depend on it.
 CONF_AUTO_ADD_NEW = "auto_add_new"
-# binary_sensor device classes exposed wholesale, although the domain itself
-# is noisy (NOISY_DOMAINS). See DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES.
-CONF_INCLUDED_BINARY_SENSOR_CLASSES = "included_binary_sensor_classes"
-# Privacy floor: entities that must NEVER be published, in any mode.
-# Local-only by design — remote exposure configuration cannot override it
-# (PROTOCOL.md, Exposure Configuration). Survives re-enrollment.
-CONF_NEVER_EXPOSE = "never_expose"
+CONF_FILTER_SNAPSHOT = "filter_snapshot"
 # Last applied remote exposure revision (cloud mode; PROTOCOL.md §5)
 CONF_CONFIG_REVISION = "config_revision"
 
-# Default port
-DEFAULT_PORT = 1883
-
-# Defaults
-DEFAULT_AUTO_ADD_NEW = True
-DEFAULT_INCLUDED_DOMAINS = [
+# Keys of the exposure model before subentries (entry version 2), read only by
+# the migration that turns them into subentries (`async_migrate_entry`). The
+# privacy blocklist was `never_expose`; it is now the exclusions.
+LEGACY_INCLUDED_DOMAINS = "included_domains"
+LEGACY_NEVER_EXPOSE = "never_expose"
+LEGACY_EXPOSED_ENTITIES = "exposed_entities"
+LEGACY_BINARY_SENSOR_CLASSES = "included_binary_sensor_classes"
+LEGACY_DEFAULT_INCLUDED_DOMAINS = [
     "light",
     "switch",
     "climate",
@@ -63,29 +79,26 @@ DEFAULT_INCLUDED_DOMAINS = [
     "group",
 ]
 
+# Default port
+DEFAULT_PORT = 1883
+
+# Defaults
+DEFAULT_AUTO_ADD_NEW = True
+
 # Dispatcher signal for config updates (diagnostics/status consumers)
 SIGNAL_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 
-# Domains that can carry many unwanted entities: excluded from default
-# cloud exposure. Individual entities get in as manual additions in the
-# options flow, and binary sensors also by device class (below). The platform
-# cannot ask for one: the catalog is the publish scope, so it never learns
-# that an excluded entity exists.
-NOISY_DOMAINS = ["sensor", "binary_sensor", "automation", "device_tracker", "person"]
-
-# The binary sensors a building's platform needs whatever the domain says,
-# exposed by device class in every mode (Santiago, 2026-10-06; turzi-apps
-# DEFERRED_WORK.md D54):
+# The binary sensors a building's platform needs whatever else is published
+# (Santiago, 2026-10-06; turzi-apps DEFERRED_WORK.md D54):
 # - a door's contact, which is the only input of the platform's door-held-open
 #   alert and of a door's state in the Community Manager: door, garage_door,
 #   opening, window;
 # - life safety, for the security console: smoke, gas, carbon_monoxide,
 #   moisture.
 # They change state rarely, and they are the same kind of information as the
-# locks and alarm panels already published by default. motion and occupancy
-# stay out: they change constantly and say the most about who is home. The
-# privacy blocklist still wins over this list.
-DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES = [
+# locks and alarm panels. motion and occupancy stay out: they change
+# constantly and say the most about who is home.
+DOOR_AND_SAFETY_CLASSES = [
     "door",
     "garage_door",
     "opening",
@@ -96,11 +109,29 @@ DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES = [
     "moisture",
 ]
 
+# The domain filters a new installation starts with, in every mode (Santiago,
+# 2026-10-06): the devices a building controls, plus the door and safety
+# binary sensors. Not input_boolean or script: helpers and automations are the
+# installer's plumbing, not devices, and they get in only by a filter someone
+# adds.
+DEFAULT_FILTERS: list[dict] = [
+    {FILTER_DOMAIN: domain, FILTER_DEVICE_CLASSES: []}
+    for domain in (
+        "alarm_control_panel",
+        "climate",
+        "cover",
+        "fan",
+        "light",
+        "lock",
+        "siren",
+        "switch",
+    )
+] + [{FILTER_DOMAIN: "binary_sensor", FILTER_DEVICE_CLASSES: list(DOOR_AND_SAFETY_CLASSES)}]
+
 # Every binary_sensor device class Home Assistant defines
-# (BinarySensorDeviceClass), for the options-flow picker. Kept here rather than
-# read from the enum so that this module stays free of Home Assistant imports.
-# A class Home Assistant adds later still matches if an entry lists it; it is
-# only missing from the picker.
+# (BinarySensorDeviceClass), offered first in a filter's class picker. Kept
+# here rather than read from the enum so that this module stays free of Home
+# Assistant imports. A class Home Assistant adds later can still be typed in.
 SELECTABLE_BINARY_SENSOR_CLASSES = [
     "battery",
     "battery_charging",
@@ -132,7 +163,7 @@ SELECTABLE_BINARY_SENSOR_CLASSES = [
     "window",
 ]
 
-# All selectable domains in the options-flow domain picker (auto-expose candidates).
+# The domains a filter can name.
 SELECTABLE_DOMAINS = [
     "alarm_control_panel",
     "automation",

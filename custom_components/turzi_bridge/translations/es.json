@@ -79,6 +79,16 @@
           "enrollment_key": "Código de un solo uso (TRZ-XXXX-XXXX-XXXX) generado en el Turzi Community Manager. Al enviarlo se revoca la conexión actual de este bridge, así que usá solo un código que quieras gastar.",
           "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado."
         }
+      },
+      "settings": {
+        "title": "Opciones",
+        "description": "El puente arranca con {filters} filtros de dominio: los dispositivos que controla un edificio y los sensores de puerta y de seguridad. Publican {published} entidades. Después, los filtros y las exclusiones son filas en la página del puente, cada una con su editar y su eliminar.",
+        "data": {
+          "auto_add_new": "Exponer automáticamente entidades nuevas"
+        },
+        "data_description": {
+          "auto_add_new": "Encendido: una entidad nueva que coincide con un filtro de dominio se publica sola. Apagado: los filtros de dominio cubren solo las entidades que existen al guardarlos; una nueva espera hasta que vuelvas a guardar."
+        }
       }
     },
     "error": {
@@ -113,56 +123,111 @@
   "options": {
     "step": {
       "init": {
-        "title": "Exposición y privacidad",
-        "description": "Elegí qué entidades se publican a la app de Turzi. Las entidades en la lista de privacidad no se publican nunca, en ningún modo — ni siquiera cuando la exposición se administra de forma remota.",
+        "title": "Opciones",
+        "description": "Con los filtros y las exclusiones de ahora se publican {published} entidades, y {held} quedan fuera por una exclusión. Los filtros y las exclusiones son filas en la página del puente.",
         "data": {
-          "included_domains": "Dominios incluidos",
-          "included_binary_sensor_classes": "Clases de sensores binarios siempre incluidas",
-          "exposed_entities": "Entidades expuestas manualmente",
-          "auto_add_new": "Exponer automáticamente entidades nuevas",
-          "never_expose": "Lista de privacidad (nunca exponer)"
+          "auto_add_new": "Exponer automáticamente entidades nuevas"
         },
         "data_description": {
-          "included_domains": "TODAS las entidades de estos dominios se publican automáticamente.",
-          "included_binary_sensor_classes": "Los sensores binarios de estas clases se publican aunque el dominio binary_sensor no esté incluido. El sensor de una puerta es lo que lee la alerta de puerta abierta de la plataforma; humo, gas, monóxido de carbono y humedad (pérdidas de agua) son de seguridad.",
-          "exposed_entities": "Entidades individuales publicadas ADEMÁS de los dominios incluidos (p. ej. un sensor puntual).",
-          "auto_add_new": "Las entidades nuevas de los dominios incluidos se exponen automáticamente.",
-          "never_expose": "Estas entidades no se publican nunca; esta lista pisa cualquier otra configuración y sobrevive a la re-instalación."
+          "auto_add_new": "Encendido: una entidad nueva que coincide con un filtro de dominio se publica sola. Apagado: los filtros de dominio cubren solo las entidades que existen al guardar acá; una nueva espera hasta que vuelvas a guardar."
         }
       }
     }
   },
-  "selector": {
-    "binary_sensor_class": {
-      "options": {
-        "battery": "Batería",
-        "battery_charging": "Carga de batería",
-        "carbon_monoxide": "Monóxido de carbono",
-        "cold": "Frío",
-        "connectivity": "Conectividad",
-        "door": "Puerta",
-        "garage_door": "Puerta de garaje",
-        "gas": "Gas",
-        "heat": "Calor",
-        "light": "Luz",
-        "lock": "Cerradura",
-        "moisture": "Humedad",
-        "motion": "Movimiento",
-        "moving": "En movimiento",
-        "occupancy": "Ocupación",
-        "opening": "Apertura",
-        "plug": "Enchufe",
-        "power": "Alimentación",
-        "presence": "Presencia",
-        "problem": "Problema",
-        "running": "En funcionamiento",
-        "safety": "Seguridad",
-        "smoke": "Humo",
-        "sound": "Sonido",
-        "tamper": "Manipulación",
-        "update": "Actualización",
-        "vibration": "Vibración",
-        "window": "Ventana"
+  "config_subentries": {
+    "domain_filter": {
+      "entry_type": "Filtro de dominio",
+      "initiate_flow": {
+        "user": "Agregar filtro de dominio",
+        "reconfigure": "Editar filtro de dominio"
+      },
+      "step": {
+        "user": {
+          "title": "Agregar filtro de dominio",
+          "description": "Se publican todas las entidades del dominio, o solo las de las clases que elijas en el paso siguiente.",
+          "data": {
+            "domain": "Dominio"
+          }
+        },
+        "reconfigure": {
+          "title": "Editar filtro de dominio",
+          "description": "Se publican todas las entidades del dominio, o solo las de las clases que elijas en el paso siguiente.",
+          "data": {
+            "domain": "Dominio"
+          }
+        },
+        "classes": {
+          "title": "Clases: {domain}",
+          "description": "Marcá las clases que se publican. Sin ninguna marcada, se publica todo el dominio.",
+          "data": {
+            "device_classes": "Clases"
+          }
+        }
+      },
+      "error": {
+        "domain_filter_exists": "Este dominio ya tiene un filtro. Editá esa fila.",
+        "domain_required": "Elegí un dominio."
+      },
+      "abort": {
+        "reconfigure_successful": "Filtro guardado."
+      }
+    },
+    "entity_filter": {
+      "entry_type": "Filtro de entidades",
+      "initiate_flow": {
+        "user": "Agregar filtro de entidades",
+        "reconfigure": "Editar filtro de entidades"
+      },
+      "step": {
+        "user": {
+          "title": "Agregar filtro de entidades",
+          "description": "Buscá y sumá las entidades que se publican, sean del dominio que sean.",
+          "data": {
+            "entities": "Entidades"
+          }
+        },
+        "reconfigure": {
+          "title": "Editar filtro de entidades",
+          "description": "Buscá y sumá las entidades que se publican, sean del dominio que sean.",
+          "data": {
+            "entities": "Entidades"
+          }
+        }
+      },
+      "error": {
+        "no_entities": "Elegí al menos una entidad."
+      },
+      "abort": {
+        "reconfigure_successful": "Filtro guardado."
+      }
+    },
+    "exclusion": {
+      "entry_type": "Exclusión",
+      "initiate_flow": {
+        "user": "Agregar exclusión",
+        "reconfigure": "Editar exclusión"
+      },
+      "step": {
+        "user": {
+          "title": "Agregar exclusión",
+          "description": "Estas entidades no se publican nunca, aunque un filtro las incluya. Vale en cualquier modo y se conserva si volvés a instalar el puente.",
+          "data": {
+            "entities": "Entidades"
+          }
+        },
+        "reconfigure": {
+          "title": "Editar exclusión",
+          "description": "Estas entidades no se publican nunca, aunque un filtro las incluya. Vale en cualquier modo y se conserva si volvés a instalar el puente.",
+          "data": {
+            "entities": "Entidades"
+          }
+        }
+      },
+      "error": {
+        "no_entities": "Elegí al menos una entidad."
+      },
+      "abort": {
+        "reconfigure_successful": "Exclusión guardada."
       }
     }
   }

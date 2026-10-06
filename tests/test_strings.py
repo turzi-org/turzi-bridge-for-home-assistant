@@ -1,29 +1,27 @@
-"""Every class in the picker has a label, in every language, and HA's list is ours."""
+"""Every screen and button the flows show is worded, in every language."""
 
 import json
 from pathlib import Path
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass
-
-from custom_components.turzi_bridge.const import (
-    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
-    SELECTABLE_BINARY_SENSOR_CLASSES,
-)
-
 ROOT = Path(__file__).parent.parent / "custom_components" / "turzi_bridge"
 FILES = [ROOT / "strings.json", ROOT / "translations" / "en.json", ROOT / "translations" / "es.json"]
+STEPS = {"domain_filter": {"user", "reconfigure", "classes"}, "entity_filter": {"user", "reconfigure"}, "exclusion": {"user", "reconfigure"}}
 
 
-def test_the_picker_offers_every_class_home_assistant_defines():
-    assert set(SELECTABLE_BINARY_SENSOR_CLASSES) == {c.value for c in BinarySensorDeviceClass}
-    assert set(DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES) <= set(SELECTABLE_BINARY_SENSOR_CLASSES)
-
-
-def test_every_class_and_the_field_are_worded_in_every_file():
+def test_every_row_type_has_its_button_its_name_and_its_steps():
     for path in FILES:
         strings = json.loads(path.read_text())
-        labels = strings["selector"]["binary_sensor_class"]["options"]
-        assert set(labels) == set(SELECTABLE_BINARY_SENSOR_CLASSES), path.name
-        step = strings["options"]["step"]["init"]
-        assert step["data"]["included_binary_sensor_classes"], path.name
-        assert step["data_description"]["included_binary_sensor_classes"], path.name
+        assert set(strings["config_subentries"]) == set(STEPS), path.name
+        for kind, steps in STEPS.items():
+            block = strings["config_subentries"][kind]
+            assert block["entry_type"] and block["initiate_flow"]["user"] and block["initiate_flow"]["reconfigure"], (path.name, kind)
+            assert set(block["step"]) == steps, (path.name, kind)
+
+
+def test_the_options_step_is_worded_at_setup_and_in_configure():
+    for path in FILES:
+        strings = json.loads(path.read_text())
+        for step in (strings["config"]["step"]["settings"], strings["options"]["step"]["init"]):
+            assert step["data"]["auto_add_new"] and step["data_description"]["auto_add_new"], path.name
+        assert "{filters}" in strings["config"]["step"]["settings"]["description"]
+        assert "{held}" in strings["options"]["step"]["init"]["description"]

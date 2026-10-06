@@ -13,48 +13,45 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentryData,
+    ConfigSubentryFlow,
     OptionsFlow,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
-    EntitySelector,
-    EntitySelectorConfig,
-    SelectSelector,
-    SelectSelectorConfig,
-    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
 )
 
 from .const import (
-    NOISY_DOMAINS,
-    SELECTABLE_BINARY_SENSOR_CLASSES,
-    SELECTABLE_DOMAINS,
     CONF_API_BASE_URL,
     CONF_AUTO_ADD_NEW,
     CONF_BRIDGE_TOKEN,
     CONF_BROKER,
     CONF_ENROLLMENT_TOKEN,
-    CONF_EXPOSED_ENTITIES,
+    CONF_FILTER_SNAPSHOT,
     CONF_HOUSE_ID,
-    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
-    CONF_INCLUDED_DOMAINS,
     CONF_MODE,
     CONF_PASSWORD,
     CONF_PORT,
     CONF_USE_TLS,
     CONF_USERNAME,
     DEFAULT_AUTO_ADD_NEW,
-    CONF_NEVER_EXPOSE,
     DEFAULT_CLOUD_API_BASE_URL,
-    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
-    DEFAULT_INCLUDED_DOMAINS,
+    DEFAULT_FILTERS,
     DEFAULT_PORT,
     DOMAIN,
+    FILTER_DEVICE_CLASSES,
+    FILTER_DOMAIN,
+    SUBENTRY_DOMAIN_FILTER,
+    SUBENTRY_ENTITY_FILTER,
+    SUBENTRY_EXCLUSION,
 )
 from .enrollment import EnrollmentError, async_enroll
+from .scope import blocked_of, count_published, domain_filter_title, filters_of, take_snapshot
+from .subentry_flows import DomainFilterFlow, EntityFilterFlow, ExclusionFlow
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -114,27 +111,21 @@ def _build_broker_schema(
     return vol.Schema(fields)
 
 
-def _default_options(hass, cloud: bool = False) -> dict[str, Any]:
-    """Default exposure options.
+async def _initial_subentries(hass: HomeAssistant) -> list[ConfigSubentryData]:
+    """The preloaded domain filters, as the rows a new bridge starts with."""
+    return [
+        ConfigSubentryData(
+            data=dict(item),
+            subentry_type=SUBENTRY_DOMAIN_FILTER,
+            title=await domain_filter_title(hass, item[FILTER_DOMAIN], item[FILTER_DEVICE_CLASSES]),
+            unique_id=item[FILTER_DOMAIN],
+        )
+        for item in DEFAULT_FILTERS
+    ]
 
-    Included domains expose wholesale; exposed_entities holds MANUAL
-    additions only (empty by default). Cloud mode includes everything
-    selectable except the noisy domains (NOISY_DOMAINS); individual
-    noisy-domain entities are added manually when needed. In both modes the
-    door and life-safety binary sensors are included by device class
-    (DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES).
-    """
-    included = (
-        [d for d in SELECTABLE_DOMAINS if d not in NOISY_DOMAINS]
-        if cloud
-        else DEFAULT_INCLUDED_DOMAINS
-    )
-    return {
-        CONF_INCLUDED_DOMAINS: included,
-        CONF_EXPOSED_ENTITIES: [],
-        CONF_AUTO_ADD_NEW: True if cloud else DEFAULT_AUTO_ADD_NEW,
-        CONF_INCLUDED_BINARY_SENSOR_CLASSES: list(DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES),
-    }
+
+def _settings_schema(auto_add_new: bool) -> vol.Schema:
+    return vol.Schema({vol.Required(CONF_AUTO_ADD_NEW, default=auto_add_new): BooleanSelector()})
 
 
 def _cloud_schema(default_base_url: str) -> vol.Schema:
@@ -164,11 +155,27 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     # `should_expose` was pure set membership against that list. Now a listed
     # domain is exposed wholesale. Same key, opposite blast radius — see
     # `async_migrate_entry` in __init__.py.
-    VERSION = 2
-    # 2: `included_binary_sensor_classes` exists, so door contacts and
-    # life-safety sensors are published by device class. Minor, because an
-    # older bridge ignores the key and can still load the entry.
-    MINOR_VERSION = 2
+    # 3: what is published lives in subentries (domain filters, entity
+    # filters, exclusions), one row each on the bridge's page.
+    VERSION = 3
+    MINOR_VERSION = 1
+
+    def __init__(self) -> None:
+        """Connection details held until the last step creates the entry."""
+        self._data: dict[str, Any] = {}
+        self._title = ""
+
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """The bridge page's three add buttons, one per kind of row."""
+        return {
+            SUBENTRY_DOMAIN_FILTER: DomainFilterFlow,
+            SUBENTRY_ENTITY_FILTER: EntityFilterFlow,
+            SUBENTRY_EXCLUSION: ExclusionFlow,
+        }
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -225,11 +232,9 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured(
                     updates=datos, reload_on_update=True
                 )
-                return self.async_create_entry(
-                    title=f"turzi Bridge for Home Assistant — {result.house_id}",
-                    data=datos,
-                    options=_default_options(self.hass, cloud=True),
-                )
+                self._data = datos
+                self._title = f"turzi Bridge for Home Assistant — {result.house_id}"
+                return await self.async_step_settings()
 
         return self.async_show_form(
             step_id="cloud",
@@ -352,16 +357,43 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["base"] = "cannot_connect"
 
             if not errors:
-                return self.async_create_entry(
-                    title=f"turzi Bridge for Home Assistant — {user_input[CONF_HOUSE_ID]}",
-                    data={**user_input, CONF_MODE: "manual"},
-                    options=_default_options(self.hass),
-                )
+                self._data = {**user_input, CONF_MODE: "manual"}
+                self._title = f"turzi Bridge for Home Assistant — {user_input[CONF_HOUSE_ID]}"
+                return await self.async_step_settings()
 
         return self.async_show_form(
             step_id="manual",
             data_schema=_build_broker_schema(),
             errors=errors,
+        )
+
+    async def async_step_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Last step: the options, then the bridge with its preloaded filters.
+
+        The filters and exclusions themselves are rows on the bridge's page
+        from here on (`subentry_flows.py`); setup only creates the defaults.
+        """
+        if user_input is not None:
+            return self.async_create_entry(
+                title=self._title,
+                data=self._data,
+                options={
+                    CONF_AUTO_ADD_NEW: user_input[CONF_AUTO_ADD_NEW],
+                    CONF_FILTER_SNAPSHOT: take_snapshot(self.hass, DEFAULT_FILTERS),
+                },
+                subentries=await _initial_subentries(self.hass),
+            )
+
+        published, _ = count_published(self.hass, DEFAULT_FILTERS, set())
+        return self.async_show_form(
+            step_id="settings",
+            data_schema=_settings_schema(DEFAULT_AUTO_ADD_NEW),
+            description_placeholders={
+                "filters": str(len(DEFAULT_FILTERS)),
+                "published": str(published),
+            },
         )
 
     async def async_step_reconfigure(
@@ -443,93 +475,41 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class TurziOptionsFlow(OptionsFlow):
-    """Options: exposure management and the privacy blocklist.
+    """Configure (the gear on the bridge's row): «Opciones».
 
-    Replaces the removed sidebar panel. The privacy blocklist applies in
-    every mode and cannot be overridden remotely (PROTOCOL.md, Exposure
-    Configuration): entities listed there are never published, even if a
-    future platform exposure revision includes them.
+    Filters and exclusions are not here: they are rows on the bridge's page,
+    each with its own edit and delete. This step holds what applies to all of
+    them.
     """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage exposure and privacy options."""
+        """Automatic exposure, with what the rows publish today."""
+        entry = self.config_entry
         if user_input is not None:
             # Merge, never replace. `async_create_entry` in an options flow is
-            # a FULL overwrite —  HA's `OptionsFlowManager.async_finish_flow`
-            # calls `async_update_entry(entry, options=result["data"])` — so a
-            # literal dict here silently deletes every key this form does not
+            # a FULL overwrite (`OptionsFlowManager.async_finish_flow` calls
+            # `async_update_entry(entry, options=result["data"])`), so a
+            # literal dict here would delete every key this form does not
             # draw. Today that is `config_revision`, the last exposure revision
-            # applied from the platform (PROTOCOL.md §5).
+            # applied from the platform (PROTOCOL.md §5); with it gone,
+            # `cloud.async_apply_exposure` would re-apply the platform's
+            # exposure over this edit about ten seconds later.
             #
-            # Losing it is not cosmetic: it re-arms the replay this bridge just
-            # acked. `cloud.async_apply_exposure` skips a revision when
-            # `revision <= (options.get(CONF_CONFIG_REVISION) or 0)`; with the
-            # key gone that reads `revision <= 0`, false for every real
-            # revision, so the next catalog round-trip re-applies the
-            # platform's exposure over the edit that was just saved — about ten
-            # seconds after the installer saved it, with no error anywhere.
+            # The snapshot is retaken on every save: with automatic exposure
+            # off, saving is what lets the entities that appeared since in.
             return self.async_create_entry(
                 data={
-                    **self.config_entry.options,
-                    CONF_INCLUDED_DOMAINS: user_input.get(
-                        CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
-                    ),
-                    CONF_INCLUDED_BINARY_SENSOR_CLASSES: user_input.get(
-                        CONF_INCLUDED_BINARY_SENSOR_CLASSES, []
-                    ),
-                    CONF_EXPOSED_ENTITIES: user_input.get(CONF_EXPOSED_ENTITIES, []),
-                    CONF_AUTO_ADD_NEW: user_input.get(
-                        CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW
-                    ),
-                    CONF_NEVER_EXPOSE: user_input.get(CONF_NEVER_EXPOSE, []),
+                    **entry.options,
+                    CONF_AUTO_ADD_NEW: user_input[CONF_AUTO_ADD_NEW],
+                    CONF_FILTER_SNAPSHOT: take_snapshot(self.hass, filters_of(entry)),
                 }
             )
 
-        options = self.config_entry.options
-        schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_INCLUDED_DOMAINS,
-                    default=options.get(
-                        CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
-                    ),
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=SELECTABLE_DOMAINS,
-                        multiple=True,
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                # Under the domains, because it is the exception to them:
-                # binary_sensor stays out as a domain, these classes get in.
-                vol.Required(
-                    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
-                    default=options.get(
-                        CONF_INCLUDED_BINARY_SENSOR_CLASSES,
-                        DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
-                    ),
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=SELECTABLE_BINARY_SENSOR_CLASSES,
-                        multiple=True,
-                        mode=SelectSelectorMode.DROPDOWN,
-                        translation_key="binary_sensor_class",
-                    )
-                ),
-                vol.Required(
-                    CONF_EXPOSED_ENTITIES,
-                    default=options.get(CONF_EXPOSED_ENTITIES, []),
-                ): EntitySelector(EntitySelectorConfig(multiple=True)),
-                vol.Required(
-                    CONF_AUTO_ADD_NEW,
-                    default=options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
-                ): BooleanSelector(),
-                vol.Required(
-                    CONF_NEVER_EXPOSE,
-                    default=options.get(CONF_NEVER_EXPOSE, []),
-                ): EntitySelector(EntitySelectorConfig(multiple=True)),
-            }
+        published, held = count_published(self.hass, filters_of(entry), blocked_of(entry))
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_settings_schema(entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW)),
+            description_placeholders={"published": str(published), "held": str(held)},
         )
-        return self.async_show_form(step_id="init", data_schema=schema)

@@ -4,5 +4,5 @@
   "render_readme": true,
   "domains": ["turzi_bridge"],
   "country": false,
-  "homeassistant": "2024.11.0"
+  "homeassistant": "2026.9.0"
 }

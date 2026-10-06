@@ -35,25 +35,18 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 
-from .exposure import in_publish_scope
+from .exposure import PublishScope
+from .scope import blocked_of, scope_of
 
 from .const import (
     ALARM_MODE_MAP,
     CLOCK_SKEW_TOLERANCE_SECONDS,
-    CONF_AUTO_ADD_NEW,
     CONF_BROKER,
-    CONF_EXPOSED_ENTITIES,
     CONF_HOUSE_ID,
-    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
-    CONF_INCLUDED_DOMAINS,
-    CONF_NEVER_EXPOSE,
     CONF_PASSWORD,
     CONF_PORT,
     CONF_USE_TLS,
     CONF_USERNAME,
-    DEFAULT_AUTO_ADD_NEW,
-    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
-    DEFAULT_INCLUDED_DOMAINS,
     DEFAULT_TTL_CEILING_SECONDS,
     DOMAIN,
     DOMAIN_ATTRIBUTES,
@@ -120,11 +113,8 @@ class TurziMqttBridge:
         house_id: str,
         use_tls: bool,
         entry_id: str,
-        exposed_entities: list[str],
-        included_domains: list[str],
-        auto_add_new: bool,
+        scope: PublishScope,
         never_expose: list[str] | None = None,
-        included_binary_sensor_classes: list[str] | None = None,
     ) -> None:
         """Initialize the MQTT bridge."""
         self.hass = hass
@@ -135,16 +125,10 @@ class TurziMqttBridge:
         self._house_id = house_id
         self._use_tls = use_tls
         self._entry_id = entry_id
-        self._exposed_entities: set[str] = set(exposed_entities)
-        self._included_domains: set[str] = set(included_domains)
-        self._auto_add_new: bool = auto_add_new
-        # Privacy floor: never published, in any mode; wins over everything.
+        # The filters, compiled (exposure.py).
+        self._scope: PublishScope = scope
+        # The exclusions: never published, in any mode; they win over everything.
         self._never_expose: set[str] = set(never_expose or [])
-        self._binary_sensor_classes: set[str] = set(
-            DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
-            if included_binary_sensor_classes is None
-            else included_binary_sensor_classes
-        )
 
         # Internal state
         self._client: aiomqtt.Client | None = None
@@ -204,14 +188,8 @@ class TurziMqttBridge:
             house_id=entry.data[CONF_HOUSE_ID],
             use_tls=entry.data.get(CONF_USE_TLS, False),
             entry_id=entry.entry_id,
-            exposed_entities=entry.options.get(CONF_EXPOSED_ENTITIES, []),
-            included_domains=entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS),
-            auto_add_new=entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
-            never_expose=entry.options.get(CONF_NEVER_EXPOSE, []),
-            included_binary_sensor_classes=entry.options.get(
-                CONF_INCLUDED_BINARY_SENSOR_CLASSES,
-                DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
-            ),
+            scope=scope_of(entry),
+            never_expose=sorted(blocked_of(entry)),
         )
 
     # -------------------------------------------------------------------------
@@ -219,28 +197,22 @@ class TurziMqttBridge:
     # -------------------------------------------------------------------------
 
     def should_expose(self, entity_id: str, state: State | None = None) -> bool:
-        """Effective exposure: included domains expose wholesale, and so do the
-        included binary_sensor device classes; the exposed_entities list holds
-        MANUAL additions only; the privacy blocklist wins over everything.
+        """Effective exposure: any filter matches (exposure.PublishScope), and
+        the privacy blocklist wins over everything.
 
-        A binary sensor's class lives in its state, so it is read from `state`
-        when the caller has it, else from the state machine. An entity with no
-        state yet is not exposed by class; its first state_changed publishes it.
+        A device class lives in the entity's state, so it is read only when a
+        class filter needs it: from `state` when the caller has it, else from
+        the state machine. An entity with no state yet is not matched by class;
+        its first state_changed publishes it.
         """
         if entity_id in self._never_expose:
             return False
         device_class = None
-        if entity_id.startswith("binary_sensor."):
+        if self._scope.needs_device_class(entity_id):
             current = state if state is not None else self.hass.states.get(entity_id)
             if current is not None:
                 device_class = current.attributes.get("device_class")
-        return in_publish_scope(
-            entity_id,
-            device_class,
-            included_domains=self._included_domains,
-            exposed_entities=self._exposed_entities,
-            binary_sensor_classes=self._binary_sensor_classes,
-        )
+        return self._scope.includes(entity_id, device_class)
 
     def get_status(self) -> dict:
         """Return a status snapshot for the panel Status tab."""
@@ -254,7 +226,6 @@ class TurziMqttBridge:
             "last_connect_time": self._last_connect_time.isoformat() if self._last_connect_time else None,
             "last_disconnect_time": self._last_disconnect_time.isoformat() if self._last_disconnect_time else None,
             "published_count": len(self._published_entities),
-            "exposed_count": len(self._exposed_entities),
             "event_log": list(self._event_log),
         }
 
@@ -270,11 +241,8 @@ class TurziMqttBridge:
 
     def update_config(
         self,
-        exposed_entities: list[str],
-        included_domains: list[str],
-        auto_add_new: bool,
+        scope: PublishScope,
         never_expose: list[str] | None = None,
-        included_binary_sensor_classes: list[str] | None = None,
     ) -> None:
         """Apply updated config and sync MQTT state accordingly.
 
@@ -288,15 +256,8 @@ class TurziMqttBridge:
         """
         old_exposed = set(self._published_entities)
 
-        self._exposed_entities = set(exposed_entities)
-        self._included_domains = set(included_domains)
-        self._auto_add_new = auto_add_new
+        self._scope = scope
         self._never_expose = set(never_expose or [])
-        self._binary_sensor_classes = set(
-            DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
-            if included_binary_sensor_classes is None
-            else included_binary_sensor_classes
-        )
 
         new_exposed: set[str] = {
             s.entity_id
@@ -431,8 +392,9 @@ class TurziMqttBridge:
             if not entity_id:
                 return
 
-            if action == "create" and self._auto_add_new:
-                # Domain inclusion exposes new entities inherently; just
+            if action == "create":
+                # A filter that matches exposes a new entity by itself (unless
+                # it is held to the snapshot, which should_expose knows); just
                 # publish the initial state immediately.
                 if not self.should_expose(entity_id):
                     return
@@ -454,7 +416,6 @@ class TurziMqttBridge:
                         self._remove_entity_from_mqtt(self._client, entity_id),
                         f"turzi_remove_{entity_id}",
                     )
-                self._exposed_entities.discard(entity_id)
 
             elif action == "update":
                 # A rename and a disable both arrive as "update", and both make
@@ -480,7 +441,6 @@ class TurziMqttBridge:
                             self._remove_entity_from_mqtt(self._client, old_entity_id),
                             f"turzi_remove_{old_entity_id}",
                         )
-                    self._exposed_entities.discard(old_entity_id)
                 elif entity_id in self._published_entities and self._client is not None:
                     # A disable keeps the id, so the registry is the only place
                     # that says so — and it is already written when this fires.
@@ -1057,8 +1017,8 @@ class TurziMqttBridge:
             return
 
         # A ghost — renamed, deleted or disabled while we still hold its
-        # retained payload — sails through should_expose(), which only knows
-        # domains and lists. The service call then matches nothing: HA logs
+        # retained payload — can sail through should_expose(), which only knows
+        # the filters. The service call then matches nothing: HA logs
         # "Unable to find referenced entities" at WARNING and does NOT raise, so
         # without this the app gets `executed` for a door that does not exist.
         # Strictly "no state object": an entity sitting at `unavailable` or

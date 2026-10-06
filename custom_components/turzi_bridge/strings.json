@@ -79,6 +79,16 @@
           "enrollment_key": "Single-use installation key (TRZ-XXXX-XXXX-XXXX) generated in the Turzi Community Manager. Submitting it revokes this bridge's current connection, so only use a key you mean to spend.",
           "api_base_url": "Only change this when connecting to a self-hosted Turzi backend."
         }
+      },
+      "settings": {
+        "title": "Options",
+        "description": "The bridge starts with {filters} domain filters: the devices a building controls, plus door and safety binary sensors. They publish {published} entities. Filters and exclusions are rows on the bridge's page afterwards, each with its own edit and delete.",
+        "data": {
+          "auto_add_new": "Automatically expose new entities"
+        },
+        "data_description": {
+          "auto_add_new": "On: a new entity that matches a domain filter is published by itself. Off: domain filters cover only the entities that exist when they are saved; a new one waits until you save again."
+        }
       }
     },
     "error": {
@@ -113,56 +123,111 @@
   "options": {
     "step": {
       "init": {
-        "title": "Exposure & privacy",
-        "description": "Choose which entities are published to the Turzi app. Entities in the privacy blocklist are never published, in any mode — not even when exposure is managed remotely.",
+        "title": "Options",
+        "description": "With the current filters and exclusions, {published} entities are published and {held} are held back by an exclusion. Filters and exclusions are rows on the bridge's page.",
         "data": {
-          "included_domains": "Included domains",
-          "included_binary_sensor_classes": "Binary sensor classes always included",
-          "exposed_entities": "Manually exposed entities",
-          "auto_add_new": "Automatically expose new entities",
-          "never_expose": "Privacy blocklist (never expose)"
+          "auto_add_new": "Automatically expose new entities"
         },
         "data_description": {
-          "included_domains": "ALL entities in these domains are published automatically.",
-          "included_binary_sensor_classes": "Binary sensors of these classes are published even though the binary_sensor domain is not included. A door's contact is what the platform's open-door alert reads; smoke, gas, carbon monoxide and moisture (water leaks) are life safety.",
-          "exposed_entities": "Individual entities published IN ADDITION to the included domains (e.g. a specific sensor).",
-          "auto_add_new": "New entities in included domains are exposed automatically.",
-          "never_expose": "These entities are never published, overriding every other setting. Survives re-enrollment."
+          "auto_add_new": "On: a new entity that matches a domain filter is published by itself. Off: domain filters cover only the entities that exist when you save here; a new one waits until you save again."
         }
       }
     }
   },
-  "selector": {
-    "binary_sensor_class": {
-      "options": {
-        "battery": "Battery",
-        "battery_charging": "Charging",
-        "carbon_monoxide": "Carbon monoxide",
-        "cold": "Cold",
-        "connectivity": "Connectivity",
-        "door": "Door",
-        "garage_door": "Garage door",
-        "gas": "Gas",
-        "heat": "Heat",
-        "light": "Light",
-        "lock": "Lock",
-        "moisture": "Moisture",
-        "motion": "Motion",
-        "moving": "Moving",
-        "occupancy": "Occupancy",
-        "opening": "Opening",
-        "plug": "Plug",
-        "power": "Power",
-        "presence": "Presence",
-        "problem": "Problem",
-        "running": "Running",
-        "safety": "Safety",
-        "smoke": "Smoke",
-        "sound": "Sound",
-        "tamper": "Tampering",
-        "update": "Update",
-        "vibration": "Vibration",
-        "window": "Window"
+  "config_subentries": {
+    "domain_filter": {
+      "entry_type": "Domain filter",
+      "initiate_flow": {
+        "user": "Add domain filter",
+        "reconfigure": "Edit domain filter"
+      },
+      "step": {
+        "user": {
+          "title": "Add domain filter",
+          "description": "Every entity of the domain is published, or only those of the classes you pick next.",
+          "data": {
+            "domain": "Domain"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit domain filter",
+          "description": "Every entity of the domain is published, or only those of the classes you pick next.",
+          "data": {
+            "domain": "Domain"
+          }
+        },
+        "classes": {
+          "title": "Classes: {domain}",
+          "description": "Tick the classes that are published. With none ticked, the whole domain is.",
+          "data": {
+            "device_classes": "Classes"
+          }
+        }
+      },
+      "error": {
+        "domain_filter_exists": "This domain already has a filter. Edit that row instead.",
+        "domain_required": "Pick a domain."
+      },
+      "abort": {
+        "reconfigure_successful": "Filter saved."
+      }
+    },
+    "entity_filter": {
+      "entry_type": "Entity filter",
+      "initiate_flow": {
+        "user": "Add entity filter",
+        "reconfigure": "Edit entity filter"
+      },
+      "step": {
+        "user": {
+          "title": "Add entity filter",
+          "description": "Search for and add the entities that are published, whatever their domain.",
+          "data": {
+            "entities": "Entities"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit entity filter",
+          "description": "Search for and add the entities that are published, whatever their domain.",
+          "data": {
+            "entities": "Entities"
+          }
+        }
+      },
+      "error": {
+        "no_entities": "Pick at least one entity."
+      },
+      "abort": {
+        "reconfigure_successful": "Filter saved."
+      }
+    },
+    "exclusion": {
+      "entry_type": "Exclusion",
+      "initiate_flow": {
+        "user": "Add exclusion",
+        "reconfigure": "Edit exclusion"
+      },
+      "step": {
+        "user": {
+          "title": "Add exclusion",
+          "description": "These entities are never published, even when a filter includes them. It holds in every mode and survives reinstalling the bridge.",
+          "data": {
+            "entities": "Entities"
+          }
+        },
+        "reconfigure": {
+          "title": "Edit exclusion",
+          "description": "These entities are never published, even when a filter includes them. It holds in every mode and survives reinstalling the bridge.",
+          "data": {
+            "entities": "Entities"
+          }
+        }
+      },
+      "error": {
+        "no_entities": "Pick at least one entity."
+      },
+      "abort": {
+        "reconfigure_successful": "Exclusion saved."
       }
     }
   }

@@ -18,12 +18,13 @@ import asyncio
 import hashlib
 import json
 import logging
+from types import MappingProxyType
 from typing import Any
 
 import aiohttp
 
 from homeassistant.const import __version__ as HA_VERSION
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -35,21 +36,30 @@ from homeassistant.helpers.issue_registry import (
     async_delete_issue,
 )
 
-from .exposure import in_publish_scope
+from .scope import (
+    blocked_of,
+    candidates,
+    domain_filter_title,
+    entity_names,
+    join_names,
+    scope_of,
+    take_snapshot,
+)
 
 from .const import (
     CONF_API_BASE_URL,
     CONF_AUTO_ADD_NEW,
     CONF_BRIDGE_TOKEN,
     CONF_CONFIG_REVISION,
-    CONF_EXPOSED_ENTITIES,
-    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
-    CONF_INCLUDED_DOMAINS,
-    CONF_NEVER_EXPOSE,
-    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
+    CONF_FILTER_SNAPSHOT,
     DOMAIN,
+    FILTER_DEVICE_CLASSES,
+    FILTER_DOMAIN,
+    FILTER_ENTITIES,
     PROTOCOL_VERSION,
     SELECTABLE_DOMAINS,
+    SUBENTRY_DOMAIN_FILTER,
+    SUBENTRY_ENTITY_FILTER,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,113 +98,54 @@ def _device_of(devices: dr.DeviceRegistry, device_id: str | None) -> dict[str, A
 def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any]]:
     """Build the entity catalog: the bridge's actual publish scope.
 
-    Only entities in the included domains, binary sensors of the included
-    device classes, and individually exposed entities (added via the options
-    flow) are reported: the platform never sees unwanted entities, and
-    everything in the catalog is published (unless locally blocked). The rule
-    is `exposure.in_publish_scope`, the same one publishing applies.
+    Only the entities some filter matches are reported (`exposure.PublishScope`,
+    the same rule publishing applies): the platform never sees unwanted
+    entities, and everything in the catalog is published unless an exclusion
+    names it. An excluded one is still listed, `exposed: false` and
+    `locally_blocked: true`, so the platform can show why it is missing.
     """
-    exposed = set(entry.options.get(CONF_EXPOSED_ENTITIES, []))
-    blocked = set(entry.options.get(CONF_NEVER_EXPOSE, []))
-    included = set(entry.options.get(CONF_INCLUDED_DOMAINS, []))
-    classes = set(
-        entry.options.get(
-            CONF_INCLUDED_BINARY_SENSOR_CLASSES, DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
-        )
-    )
-
-    def in_scope(entity_id: str, device_class: str | None) -> bool:
-        return in_publish_scope(
-            entity_id,
-            device_class,
-            included_domains=included,
-            exposed_entities=exposed,
-            binary_sensor_classes=classes,
-        )
-
-    registry = er.async_get(hass)
+    scope = scope_of(entry)
+    blocked = blocked_of(entry)
     devices = dr.async_get(hass)
     entities: list[dict[str, Any]] = []
-    for reg_entry in registry.entities.values():
-        if reg_entry.disabled_by:
+    for candidate in candidates(hass):
+        if not scope.includes(candidate.entity_id, candidate.device_class):
             continue
-        state = hass.states.get(reg_entry.entity_id)
-        # The effective class: the state carries the installer's "Show as"
-        # override over the integration's. Without a state yet, the registry
-        # holds the same two, in the same order of precedence.
-        device_class = (
-            state.attributes.get("device_class")
-            if state
-            else (reg_entry.device_class or reg_entry.original_device_class)
-        )
-        if not in_scope(reg_entry.entity_id, device_class):
-            continue
-        # str() because `state.name` hands back the friendly_name attribute
-        # verbatim, whatever type it holds — a `homeassistant: customize:`
-        # block or a template `name: 2024` puts an int there — and the platform
-        # rejects the WHOLE catalog over a single non-string name. Registered
-        # entities reach this field through exactly the same attribute as the
-        # unregistered ones below, so both loops have to coerce or neither is
-        # protected.
-        name = str(
-            reg_entry.name
-            or reg_entry.original_name
-            or (state.name if state else None)
-            or reg_entry.entity_id
-        )
-        created_at = getattr(reg_entry, "created_at", None)
+        reg_entry, state = candidate.registry_entry, candidate.state
+        if reg_entry is not None:
+            # str() because `state.name` hands back the friendly_name attribute
+            # verbatim, whatever type it holds — a `homeassistant: customize:`
+            # block or a template `name: 2024` puts an int there — and the
+            # platform rejects the WHOLE catalog over a single non-string name.
+            name = str(
+                reg_entry.name
+                or reg_entry.original_name
+                or (state.name if state else None)
+                or reg_entry.entity_id
+            )
+            created_at = getattr(reg_entry, "created_at", None)
+            area = reg_entry.area_id
+            added_on = created_at.isoformat() if created_at else None
+            device = _device_of(devices, reg_entry.device_id)
+        else:
+            # No registry entry: nowhere in HA for an area, a creation date or
+            # a device to live. str() for the reason given above.
+            name = str(state.name or state.entity_id)
+            area = added_on = device = None
+        entity_id = candidate.entity_id
         entities.append(
             {
-                "id": reg_entry.entity_id,
-                "domain": reg_entry.domain,
-                "slug": reg_entry.entity_id.split(".", 1)[1],
+                "id": entity_id,
+                "domain": entity_id.split(".", 1)[0],
+                "slug": entity_id.split(".", 1)[1],
                 "name": name,
-                "area": reg_entry.area_id,
-                "device_class": device_class,
-                "exposed": reg_entry.entity_id not in blocked,
-                "locally_blocked": reg_entry.entity_id in blocked,
+                "area": area,
+                "device_class": candidate.device_class,
+                "exposed": entity_id not in blocked,
+                "locally_blocked": entity_id in blocked,
                 "last_seen": state.last_updated.isoformat() if state else None,
-                "added_on": created_at.isoformat() if created_at else None,
-                "device": _device_of(devices, reg_entry.device_id),
-            }
-        )
-
-    # Scope has to be measured the way publishing measures it. The MQTT side
-    # walks the state machine and its should_expose() is pure string work on the
-    # entity_id, so YAML `group:` entities and template/command_line entities
-    # declared without a unique_id — none of which ever get a registry entry —
-    # publish retained state and accept commands while the loop above cannot see
-    # them. Omitted here, the platform's inventory denies the existence of
-    # devices that are live on the broker: the manager cannot place them and
-    # cannot even see them in order to ask for them to be hidden. `group` is in
-    # the default included domains, so this is the common case, not the exotic
-    # one. The registry lookup is also what keeps the disabled_by skip above
-    # meaning something — a disabled entity whose state has not been torn down
-    # yet must not come back in through this door — and, since the loop above
-    # only ever emits registered ids, it makes a duplicate impossible.
-    for state in hass.states.async_all():
-        if registry.async_get(state.entity_id) is not None:
-            continue
-        if not in_scope(state.entity_id, state.attributes.get("device_class")):
-            continue
-        entities.append(
-            {
-                "id": state.entity_id,
-                "domain": state.domain,
-                "slug": state.entity_id.split(".", 1)[1],
-                # str() for the reason given on the registry loop above.
-                "name": str(state.name or state.entity_id),
-                # An entity with no registry entry cannot hold an area or a
-                # creation date; there is nowhere in HA for either to live.
-                "area": None,
-                "device_class": state.attributes.get("device_class"),
-                "exposed": state.entity_id not in blocked,
-                "locally_blocked": state.entity_id in blocked,
-                "last_seen": state.last_updated.isoformat(),
-                "added_on": None,
-                # No registry entry, so no device either: the device id lives on
-                # the entity's registry entry.
-                "device": None,
+                "added_on": added_on,
+                "device": device,
             }
         )
 
@@ -345,7 +296,7 @@ class TurziCloudSync:
             )
             return
 
-        blocked = set(self.entry.options.get(CONF_NEVER_EXPOSE, []))
+        blocked = blocked_of(self.entry)
         effective = [e for e in entities if isinstance(e, str) and e not in blocked]
         auto_add = [
             d
@@ -353,13 +304,43 @@ class TurziCloudSync:
             if isinstance(d, str) and d in SELECTABLE_DOMAINS
         ]
 
-        # `included_binary_sensor_classes` is left as it is: a revision names
-        # entities and domains, and the classes stay local configuration.
+        # A revision speaks the protocol's terms, and here they become filters:
+        # a domain filter per auto-add domain and one entity filter for the
+        # named entities. They replace the local filters, as a revision always
+        # replaced the local exposure; exclusions stay, and still win.
+        manager = self.hass.config_entries
+        for subentry_id, subentry in list(self.entry.subentries.items()):
+            if subentry.subentry_type in (SUBENTRY_DOMAIN_FILTER, SUBENTRY_ENTITY_FILTER):
+                manager.async_remove_subentry(self.entry, subentry_id)
+        filters: list[dict[str, Any]] = []
+        for domain in auto_add:
+            data = {FILTER_DOMAIN: domain, FILTER_DEVICE_CLASSES: []}
+            filters.append(data)
+            manager.async_add_subentry(
+                self.entry,
+                ConfigSubentry(
+                    data=MappingProxyType(data),
+                    subentry_type=SUBENTRY_DOMAIN_FILTER,
+                    title=await domain_filter_title(self.hass, domain, []),
+                    unique_id=domain,
+                ),
+            )
+        if effective:
+            data = {FILTER_ENTITIES: effective}
+            filters.append(data)
+            manager.async_add_subentry(
+                self.entry,
+                ConfigSubentry(
+                    data=MappingProxyType(data),
+                    subentry_type=SUBENTRY_ENTITY_FILTER,
+                    title=join_names(entity_names(self.hass, effective)),
+                    unique_id=None,
+                ),
+            )
         new_options = {
             **self.entry.options,
-            CONF_EXPOSED_ENTITIES: effective,
-            CONF_INCLUDED_DOMAINS: auto_add,
             CONF_AUTO_ADD_NEW: bool(auto_add),
+            CONF_FILTER_SNAPSHOT: take_snapshot(self.hass, filters),
             CONF_CONFIG_REVISION: revision,
         }
         self.hass.config_entries.async_update_entry(self.entry, options=new_options)

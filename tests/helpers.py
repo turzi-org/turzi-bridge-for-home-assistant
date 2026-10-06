@@ -4,28 +4,61 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.config_entries import ConfigSubentryData
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from custom_components.turzi_bridge.const import (
     CONF_AUTO_ADD_NEW,
-    CONF_EXPOSED_ENTITIES,
-    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
-    CONF_INCLUDED_DOMAINS,
-    CONF_NEVER_EXPOSE,
-    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
+    DOMAIN,
+    DOOR_AND_SAFETY_CLASSES,
+    FILTER_DEVICE_CLASSES,
+    FILTER_DOMAIN,
+    FILTER_ENTITIES,
+    SUBENTRY_DOMAIN_FILTER,
+    SUBENTRY_ENTITY_FILTER,
+    SUBENTRY_EXCLUSION,
 )
 
 HOUSE = "house-1"
 
 
-def cloud_options(**over: Any) -> dict[str, Any]:
-    """Options as a cloud enrollment leaves them, binary_sensor not included."""
-    return {
-        CONF_INCLUDED_DOMAINS: ["light", "lock", "alarm_control_panel"],
-        CONF_EXPOSED_ENTITIES: [],
-        CONF_AUTO_ADD_NEW: True,
-        CONF_NEVER_EXPOSE: [],
-        CONF_INCLUDED_BINARY_SENSOR_CLASSES: list(DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES),
-        **over,
-    }
+def domain_filter(domain: str, classes: list[str] | None = None) -> ConfigSubentryData:
+    return ConfigSubentryData(
+        data={FILTER_DOMAIN: domain, FILTER_DEVICE_CLASSES: list(classes or [])},
+        subentry_type=SUBENTRY_DOMAIN_FILTER,
+        title=domain,
+        unique_id=domain,
+    )
+
+
+def entity_filter(*entities: str) -> ConfigSubentryData:
+    return ConfigSubentryData(
+        data={FILTER_ENTITIES: list(entities)}, subentry_type=SUBENTRY_ENTITY_FILTER, title="entities", unique_id=None
+    )
+
+
+def exclusion(*entities: str) -> ConfigSubentryData:
+    return ConfigSubentryData(
+        data={FILTER_ENTITIES: list(entities)}, subentry_type=SUBENTRY_EXCLUSION, title="excluded", unique_id=None
+    )
+
+
+def door_and_safety() -> ConfigSubentryData:
+    return domain_filter("binary_sensor", list(DOOR_AND_SAFETY_CLASSES))
+
+
+def bridge_entry(hass, *subentries: ConfigSubentryData, options: dict[str, Any] | None = None, data=None) -> MockConfigEntry:
+    """A current (v3) entry with these rows, added to hass."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
+        minor_version=1,
+        data=data or {"mode": "cloud", "house_id": HOUSE, "broker": "localhost", "port": 1883, "use_tls": False},
+        options={CONF_AUTO_ADD_NEW: True, **(options or {})},
+        subentries_data=list(subentries),
+    )
+    entry.add_to_hass(hass)
+    return entry
 
 
 class FakeClient:
