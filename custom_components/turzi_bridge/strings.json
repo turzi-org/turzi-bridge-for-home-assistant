@@ -117,16 +117,52 @@
         "description": "Choose which entities are published to the Turzi app. Entities in the privacy blocklist are never published, in any mode — not even when exposure is managed remotely.",
         "data": {
           "included_domains": "Included domains",
+          "included_binary_sensor_classes": "Binary sensor classes always included",
           "exposed_entities": "Manually exposed entities",
           "auto_add_new": "Automatically expose new entities",
           "never_expose": "Privacy blocklist (never expose)"
         },
         "data_description": {
           "included_domains": "ALL entities in these domains are published automatically.",
+          "included_binary_sensor_classes": "Binary sensors of these classes are published even though the binary_sensor domain is not included. A door's contact is what the platform's open-door alert reads; smoke, gas, carbon monoxide and moisture (water leaks) are life safety.",
           "exposed_entities": "Individual entities published IN ADDITION to the included domains (e.g. a specific sensor).",
           "auto_add_new": "New entities in included domains are exposed automatically.",
           "never_expose": "These entities are never published, overriding every other setting. Survives re-enrollment."
         }
+      }
+    }
+  },
+  "selector": {
+    "binary_sensor_class": {
+      "options": {
+        "battery": "Battery",
+        "battery_charging": "Charging",
+        "carbon_monoxide": "Carbon monoxide",
+        "cold": "Cold",
+        "connectivity": "Connectivity",
+        "door": "Door",
+        "garage_door": "Garage door",
+        "gas": "Gas",
+        "heat": "Heat",
+        "light": "Light",
+        "lock": "Lock",
+        "moisture": "Moisture",
+        "motion": "Motion",
+        "moving": "Moving",
+        "occupancy": "Occupancy",
+        "opening": "Opening",
+        "plug": "Plug",
+        "power": "Power",
+        "presence": "Presence",
+        "problem": "Problem",
+        "running": "Running",
+        "safety": "Safety",
+        "smoke": "Smoke",
+        "sound": "Sound",
+        "tamper": "Tampering",
+        "update": "Update",
+        "vibration": "Vibration",
+        "window": "Window"
       }
     }
   }

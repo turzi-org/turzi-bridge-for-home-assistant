@@ -35,6 +35,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 
+from .exposure import in_publish_scope
+
 from .const import (
     ALARM_MODE_MAP,
     CLOCK_SKEW_TOLERANCE_SECONDS,
@@ -42,6 +44,7 @@ from .const import (
     CONF_BROKER,
     CONF_EXPOSED_ENTITIES,
     CONF_HOUSE_ID,
+    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
     CONF_INCLUDED_DOMAINS,
     CONF_NEVER_EXPOSE,
     CONF_PASSWORD,
@@ -49,6 +52,7 @@ from .const import (
     CONF_USE_TLS,
     CONF_USERNAME,
     DEFAULT_AUTO_ADD_NEW,
+    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
     DEFAULT_INCLUDED_DOMAINS,
     DEFAULT_TTL_CEILING_SECONDS,
     DOMAIN,
@@ -120,6 +124,7 @@ class TurziMqttBridge:
         included_domains: list[str],
         auto_add_new: bool,
         never_expose: list[str] | None = None,
+        included_binary_sensor_classes: list[str] | None = None,
     ) -> None:
         """Initialize the MQTT bridge."""
         self.hass = hass
@@ -135,6 +140,11 @@ class TurziMqttBridge:
         self._auto_add_new: bool = auto_add_new
         # Privacy floor: never published, in any mode; wins over everything.
         self._never_expose: set[str] = set(never_expose or [])
+        self._binary_sensor_classes: set[str] = set(
+            DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
+            if included_binary_sensor_classes is None
+            else included_binary_sensor_classes
+        )
 
         # Internal state
         self._client: aiomqtt.Client | None = None
@@ -198,21 +208,39 @@ class TurziMqttBridge:
             included_domains=entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS),
             auto_add_new=entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
             never_expose=entry.options.get(CONF_NEVER_EXPOSE, []),
+            included_binary_sensor_classes=entry.options.get(
+                CONF_INCLUDED_BINARY_SENSOR_CLASSES,
+                DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
+            ),
         )
 
     # -------------------------------------------------------------------------
-    # Entity exposure (simple set membership)
+    # Entity exposure
     # -------------------------------------------------------------------------
 
-    def should_expose(self, entity_id: str) -> bool:
-        """Effective exposure: included domains expose wholesale; the
-        exposed_entities list holds MANUAL additions only; the privacy
-        blocklist wins over everything."""
+    def should_expose(self, entity_id: str, state: State | None = None) -> bool:
+        """Effective exposure: included domains expose wholesale, and so do the
+        included binary_sensor device classes; the exposed_entities list holds
+        MANUAL additions only; the privacy blocklist wins over everything.
+
+        A binary sensor's class lives in its state, so it is read from `state`
+        when the caller has it, else from the state machine. An entity with no
+        state yet is not exposed by class; its first state_changed publishes it.
+        """
         if entity_id in self._never_expose:
             return False
-        if entity_id in self._exposed_entities:
-            return True
-        return entity_id.split(".")[0] in self._included_domains
+        device_class = None
+        if entity_id.startswith("binary_sensor."):
+            current = state if state is not None else self.hass.states.get(entity_id)
+            if current is not None:
+                device_class = current.attributes.get("device_class")
+        return in_publish_scope(
+            entity_id,
+            device_class,
+            included_domains=self._included_domains,
+            exposed_entities=self._exposed_entities,
+            binary_sensor_classes=self._binary_sensor_classes,
+        )
 
     def get_status(self) -> dict:
         """Return a status snapshot for the panel Status tab."""
@@ -246,6 +274,7 @@ class TurziMqttBridge:
         included_domains: list[str],
         auto_add_new: bool,
         never_expose: list[str] | None = None,
+        included_binary_sensor_classes: list[str] | None = None,
     ) -> None:
         """Apply updated config and sync MQTT state accordingly.
 
@@ -263,11 +292,16 @@ class TurziMqttBridge:
         self._included_domains = set(included_domains)
         self._auto_add_new = auto_add_new
         self._never_expose = set(never_expose or [])
+        self._binary_sensor_classes = set(
+            DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
+            if included_binary_sensor_classes is None
+            else included_binary_sensor_classes
+        )
 
         new_exposed: set[str] = {
             s.entity_id
             for s in self.hass.states.async_all()
-            if self.should_expose(s.entity_id)
+            if self.should_expose(s.entity_id, s)
         }
 
         to_add = new_exposed - old_exposed
@@ -721,7 +755,7 @@ class TurziMqttBridge:
         live = {
             state.entity_id
             for state in self.hass.states.async_all()
-            if self.should_expose(state.entity_id)
+            if self.should_expose(state.entity_id, state)
         }
         stale = self._published_entities - live
         if not stale:
@@ -745,7 +779,7 @@ class TurziMqttBridge:
         count = 0
         states = self.hass.states.async_all()
         for state in states:
-            if self.should_expose(state.entity_id):
+            if self.should_expose(state.entity_id, state):
                 await self._publish_state(client, state)
                 count += 1
         _LOGGER.info(
@@ -769,7 +803,17 @@ class TurziMqttBridge:
                 return
 
             entity_id = event.data["entity_id"]
-            if not self.should_expose(entity_id):
+            if not self.should_expose(entity_id, new_state):
+                # Exposure can narrow from inside a state: a binary sensor
+                # whose device class changed (an installer's "Show as" edit)
+                # leaves the included classes with nothing else revisiting it,
+                # and its retained payload would outlive it until the next
+                # connect's reconcile.
+                if entity_id in self._published_entities and self._client is not None:
+                    self.hass.async_create_task(
+                        self._remove_entity_from_mqtt(self._client, entity_id),
+                        f"turzi_remove_{entity_id}",
+                    )
                 return
 
             old_state = event.data.get("old_state")

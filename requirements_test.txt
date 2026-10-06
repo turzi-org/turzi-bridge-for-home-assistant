@@ -1,0 +1,4 @@
+# Runs the integration against a real Home Assistant core (see DEVELOPMENT.md,
+# Tests). The plugin pins the Home Assistant version it installs.
+pytest-homeassistant-custom-component
+aiomqtt>=2.0.0

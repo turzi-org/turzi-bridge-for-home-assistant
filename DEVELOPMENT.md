@@ -51,8 +51,10 @@ custom_components/turzi_bridge/
 ├── __init__.py           Setup/teardown; wires bridge + cloud sync per entry
 ├── config_flow.py        Menu flow (cloud/manual), reconfigure, options flow
 ├── const.py              CONF keys, SELECTABLE_DOMAINS, NOISY_DOMAINS,
+│                         DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
 │                         DOMAIN_ATTRIBUTES (+ HA→protocol key renames),
 │                         DEFAULT_TTL_CEILING_SECONDS (300, local-only by design)
+├── exposure.py           in_publish_scope(): the one inclusion rule (no HA imports)
 ├── enrollment.py         Cloud enrollment client (EnrollResult, EnrollmentError)
 ├── cloud.py              build_catalog() + TurziCloudSync
 ├── mqtt_bridge.py        TurziMqttBridge — the entire data plane
@@ -74,15 +76,18 @@ Cloud mode stores what enrollment returned (`api_base_url`, `bridge_token`, `hou
 | Key | Type | Meaning |
 |---|---|---|
 | `included_domains` | list[str] | ALL entities of these domains are published |
+| `included_binary_sensor_classes` | list[str] | Binary sensors of these device classes are published even when `binary_sensor` is not an included domain (entry minor version 2) |
 | `exposed_entities` | list[str] | **Manual additions only** — entities published *in addition to* the included domains |
 | `auto_add_new` | bool | Newly created entities in included domains publish automatically |
 | `never_expose` | list[str] | Privacy blocklist — never published, overrides everything, survives re-enrollment |
 
-**Effective exposure = included_domains ∪ exposed_entities − never_expose.** This is the single formula; `should_expose()` in `mqtt_bridge.py` implements it and everything else (publishing, cleanup, catalog `exposed` flags) derives from it.
+**Effective exposure = included_domains ∪ binary sensors of included_binary_sensor_classes ∪ exposed_entities − never_expose.** This is the single formula. `exposure.in_publish_scope()` decides the inclusion half, `should_expose()` in `mqtt_bridge.py` adds the blocklist, and everything else (publishing, cleanup, command gating, the catalog and its `exposed` flags) derives from those two. A binary sensor's class is the effective one Home Assistant writes into its state, so an installer's **Show as** wins over the integration's class; the catalog falls back to the entity registry (same precedence) for an entity with no state yet. A sensor whose class changes out of the list has its retained state cleared on that state change.
 
 > **Historical note (semantic change):** `exposed_entities` used to be the *complete* exposed list, with `included_domains` as UI sugar. It is now additions-only. This is what lets the Community Manager show "manually exposed" as a distinct, comprehensible concept — and keeps the noisy-domain default meaningful.
 
 Cloud enrollment seeds `included_domains` = `SELECTABLE_DOMAINS − NOISY_DOMAINS` (`sensor`, `binary_sensor`, `automation`, `device_tracker`, `person`) and `exposed_entities` = `[]`: the platform's device list stays a device list; specific sensors are opt-in.
+
+Both modes also seed `included_binary_sensor_classes` with `DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES`: door contacts (`door`, `garage_door`, `opening`, `window`) and life safety (`smoke`, `gas`, `carbon_monoxide`, `moisture`). The platform cannot ask for an entity its catalog never listed, so without this no building reported a door contact (turzi-apps `DEFERRED_WORK.md` D54). Existing entries get the same list from the 2.1 → 2.2 migration in `async_migrate_entry`, which logs it; an entry that already has the key keeps its own. A remote exposure revision leaves the classes alone.
 
 ---
 
@@ -96,7 +101,7 @@ Cloud enrollment seeds `included_domains` = `SELECTABLE_DOMAINS − NOISY_DOMAIN
 
 4. **No artificial latency.** A legacy 100 ms sleep in the command path (a Node-RED-era artifact) was removed; command→ack now measures ~40 ms on a LAN. Don't add delays to "smooth" anything — clients do optimistic UI and reconcile on the state echo (see PROTOCOL.md client practice).
 
-5. **Catalog goes over HTTPS, never MQTT.** The catalog enumerates *unexposed* entities; broker topics are readable by house clients. `build_catalog()` covers every entity in `SELECTABLE_DOMAINS` with `exposed`/`locally_blocked` flags plus `last_seen`/`added_on`, and each registration refreshes core/bridge/protocol versions (enrollment happens once; versions change forever). Since 2026-10 each entity also carries its **`device`** — HA's device-registry id, the name a person gave it (else the integration's), manufacturer, model, firmware — so the platform can group entities into devices on its Dispositivos tab (turzi-apps `INTEGRATIONS.md` §3.9, `BRIDGE_CLOUD_API.md` §3). The platform never lets a device fill a fixture role; this is grouping only. Because a device rename changes the *device* registry, the catalog is re-registered on `EVENT_DEVICE_REGISTRY_UPDATED` as well as on entity-registry changes.
+5. **Catalog goes over HTTPS, never MQTT.** The catalog is the publish scope, the entities the privacy blocklist holds back included, flagged `locally_blocked`; broker topics are readable by house clients, and those blocked entities must not be. (Until 2026-08-09 it listed every entity in `SELECTABLE_DOMAINS`; it was narrowed so the platform never sees unwanted entities.) `build_catalog()` reports each with `exposed`/`locally_blocked` flags plus `last_seen`/`added_on`, and each registration refreshes core/bridge/protocol versions (enrollment happens once; versions change forever). Since 2026-10 each entity also carries its **`device`** — HA's device-registry id, the name a person gave it (else the integration's), manufacturer, model, firmware — so the platform can group entities into devices on its Dispositivos tab (turzi-apps `INTEGRATIONS.md` §3.9, `BRIDGE_CLOUD_API.md` §3). The platform never lets a device fill a fixture role; this is grouping only. Because a device rename changes the *device* registry, the catalog is re-registered on `EVENT_DEVICE_REGISTRY_UPDATED` as well as on entity-registry changes.
 
 6. **The privacy blocklist always wins.** `never_expose` is honored in every mode, including against a remote `config/exposure` revision — local exclusion beats platform instruction, and the catalog reports the discrepancy so the platform can display it (locked at the installation).
 
@@ -124,6 +129,17 @@ Unlink (platform side): next API call → 401 token_revoked
 Enrollment errors are surfaced in the config flow (`token_unknown`, `token_expired_or_used`, connectivity). The enrollment token is single-use; a failed attempt may retry the same token until it expires.
 
 ---
+
+## Tests
+
+`tests/` runs the integration against a real Home Assistant core through `pytest-homeassistant-custom-component`, which pins the Home Assistant version it installs (Python 3.13):
+
+```bash
+pip install -r requirements_test.txt
+pytest
+```
+
+They cover the exposure rule, the catalog, publishing and retained cleanup, the config-entry migrations and the options flow. There is no CI here: run them before pushing.
 
 ## Testing Against a Real Stack
 

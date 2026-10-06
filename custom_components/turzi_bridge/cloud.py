@@ -1,9 +1,10 @@
 """Turzi Cloud sync: catalog registration and remote exposure config.
 
 Implements the management plane for cloud-enrolled bridges:
-- Catalog up via HTTPS (BRIDGE_CLOUD_API.md §3): the full candidate-entity
-  inventory, POSTed with the bridge token. Never transits MQTT — it lists
-  unexposed entities and must not be readable by house clients.
+- Catalog up via HTTPS (BRIDGE_CLOUD_API.md §3): the bridge's publish scope,
+  POSTed with the bridge token. Never transits MQTT: it carries entities the
+  privacy blocklist holds back (`locally_blocked`), and house clients must not
+  read those.
 - Exposure config down (PROTOCOL.md, Exposure Configuration): applied from
   the catalog response here, and from the retained config/exposure MQTT
   topic via TurziMqttBridge.
@@ -34,14 +35,18 @@ from homeassistant.helpers.issue_registry import (
     async_delete_issue,
 )
 
+from .exposure import in_publish_scope
+
 from .const import (
     CONF_API_BASE_URL,
     CONF_AUTO_ADD_NEW,
     CONF_BRIDGE_TOKEN,
     CONF_CONFIG_REVISION,
     CONF_EXPOSED_ENTITIES,
+    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
     CONF_INCLUDED_DOMAINS,
     CONF_NEVER_EXPOSE,
+    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
     DOMAIN,
     PROTOCOL_VERSION,
     SELECTABLE_DOMAINS,
@@ -83,14 +88,29 @@ def _device_of(devices: dr.DeviceRegistry, device_id: str | None) -> dict[str, A
 def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any]]:
     """Build the entity catalog: the bridge's actual publish scope.
 
-    Only entities in the included domains plus individually exposed
-    entities (added via the options flow) are reported — the platform
-    never sees unwanted entities, and everything in the catalog is
-    published (unless locally blocked).
+    Only entities in the included domains, binary sensors of the included
+    device classes, and individually exposed entities (added via the options
+    flow) are reported: the platform never sees unwanted entities, and
+    everything in the catalog is published (unless locally blocked). The rule
+    is `exposure.in_publish_scope`, the same one publishing applies.
     """
     exposed = set(entry.options.get(CONF_EXPOSED_ENTITIES, []))
     blocked = set(entry.options.get(CONF_NEVER_EXPOSE, []))
     included = set(entry.options.get(CONF_INCLUDED_DOMAINS, []))
+    classes = set(
+        entry.options.get(
+            CONF_INCLUDED_BINARY_SENSOR_CLASSES, DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
+        )
+    )
+
+    def in_scope(entity_id: str, device_class: str | None) -> bool:
+        return in_publish_scope(
+            entity_id,
+            device_class,
+            included_domains=included,
+            exposed_entities=exposed,
+            binary_sensor_classes=classes,
+        )
 
     registry = er.async_get(hass)
     devices = dr.async_get(hass)
@@ -98,9 +118,17 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
     for reg_entry in registry.entities.values():
         if reg_entry.disabled_by:
             continue
-        if reg_entry.domain not in included and reg_entry.entity_id not in exposed:
-            continue
         state = hass.states.get(reg_entry.entity_id)
+        # The effective class: the state carries the installer's "Show as"
+        # override over the integration's. Without a state yet, the registry
+        # holds the same two, in the same order of precedence.
+        device_class = (
+            state.attributes.get("device_class")
+            if state
+            else (reg_entry.device_class or reg_entry.original_device_class)
+        )
+        if not in_scope(reg_entry.entity_id, device_class):
+            continue
         # str() because `state.name` hands back the friendly_name attribute
         # verbatim, whatever type it holds — a `homeassistant: customize:`
         # block or a template `name: 2024` puts an int there — and the platform
@@ -122,9 +150,7 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
                 "slug": reg_entry.entity_id.split(".", 1)[1],
                 "name": name,
                 "area": reg_entry.area_id,
-                "device_class": (
-                    state.attributes.get("device_class") if state else None
-                ),
+                "device_class": device_class,
                 "exposed": reg_entry.entity_id not in blocked,
                 "locally_blocked": reg_entry.entity_id in blocked,
                 "last_seen": state.last_updated.isoformat() if state else None,
@@ -149,7 +175,7 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
     for state in hass.states.async_all():
         if registry.async_get(state.entity_id) is not None:
             continue
-        if state.domain not in included and state.entity_id not in exposed:
+        if not in_scope(state.entity_id, state.attributes.get("device_class")):
             continue
         entities.append(
             {
@@ -327,6 +353,8 @@ class TurziCloudSync:
             if isinstance(d, str) and d in SELECTABLE_DOMAINS
         ]
 
+        # `included_binary_sensor_classes` is left as it is: a revision names
+        # entities and domains, and the classes stay local configuration.
         new_options = {
             **self.entry.options,
             CONF_EXPOSED_ENTITIES: effective,

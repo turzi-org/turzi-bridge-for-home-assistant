@@ -37,6 +37,9 @@ DEFAULT_CLOUD_API_BASE_URL = "https://api.dev.turzi.com/api/v2"
 CONF_INCLUDED_DOMAINS = "included_domains"
 CONF_EXPOSED_ENTITIES = "exposed_entities"
 CONF_AUTO_ADD_NEW = "auto_add_new"
+# binary_sensor device classes exposed wholesale, although the domain itself
+# is noisy (NOISY_DOMAINS). See DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES.
+CONF_INCLUDED_BINARY_SENSOR_CLASSES = "included_binary_sensor_classes"
 # Privacy floor: entities that must NEVER be published, in any mode.
 # Local-only by design — remote exposure configuration cannot override it
 # (PROTOCOL.md, Exposure Configuration). Survives re-enrollment.
@@ -64,9 +67,70 @@ DEFAULT_INCLUDED_DOMAINS = [
 SIGNAL_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 
 # Domains that can carry many unwanted entities: excluded from default
-# cloud exposure; individual entities are published when the platform
-# includes them in an exposure revision (made visible in TCM).
+# cloud exposure. Individual entities get in as manual additions in the
+# options flow, and binary sensors also by device class (below). The platform
+# cannot ask for one: the catalog is the publish scope, so it never learns
+# that an excluded entity exists.
 NOISY_DOMAINS = ["sensor", "binary_sensor", "automation", "device_tracker", "person"]
+
+# The binary sensors a building's platform needs whatever the domain says,
+# exposed by device class in every mode (Santiago, 2026-10-06; turzi-apps
+# DEFERRED_WORK.md D54):
+# - a door's contact, which is the only input of the platform's door-held-open
+#   alert and of a door's state in the Community Manager: door, garage_door,
+#   opening, window;
+# - life safety, for the security console: smoke, gas, carbon_monoxide,
+#   moisture.
+# They change state rarely, and they are the same kind of information as the
+# locks and alarm panels already published by default. motion and occupancy
+# stay out: they change constantly and say the most about who is home. The
+# privacy blocklist still wins over this list.
+DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES = [
+    "door",
+    "garage_door",
+    "opening",
+    "window",
+    "smoke",
+    "gas",
+    "carbon_monoxide",
+    "moisture",
+]
+
+# Every binary_sensor device class Home Assistant defines
+# (BinarySensorDeviceClass), for the options-flow picker. Kept here rather than
+# read from the enum so that this module stays free of Home Assistant imports.
+# A class Home Assistant adds later still matches if an entry lists it; it is
+# only missing from the picker.
+SELECTABLE_BINARY_SENSOR_CLASSES = [
+    "battery",
+    "battery_charging",
+    "carbon_monoxide",
+    "cold",
+    "connectivity",
+    "door",
+    "garage_door",
+    "gas",
+    "heat",
+    "light",
+    "lock",
+    "moisture",
+    "motion",
+    "moving",
+    "occupancy",
+    "opening",
+    "plug",
+    "power",
+    "presence",
+    "problem",
+    "running",
+    "safety",
+    "smoke",
+    "sound",
+    "tamper",
+    "update",
+    "vibration",
+    "window",
+]
 
 # All selectable domains in the options-flow domain picker (auto-expose candidates).
 SELECTABLE_DOMAINS = [

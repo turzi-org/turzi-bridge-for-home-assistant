@@ -30,6 +30,7 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     NOISY_DOMAINS,
+    SELECTABLE_BINARY_SENSOR_CLASSES,
     SELECTABLE_DOMAINS,
     CONF_API_BASE_URL,
     CONF_AUTO_ADD_NEW,
@@ -38,6 +39,7 @@ from .const import (
     CONF_ENROLLMENT_TOKEN,
     CONF_EXPOSED_ENTITIES,
     CONF_HOUSE_ID,
+    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
     CONF_INCLUDED_DOMAINS,
     CONF_MODE,
     CONF_PASSWORD,
@@ -47,6 +49,7 @@ from .const import (
     DEFAULT_AUTO_ADD_NEW,
     CONF_NEVER_EXPOSE,
     DEFAULT_CLOUD_API_BASE_URL,
+    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
     DEFAULT_INCLUDED_DOMAINS,
     DEFAULT_PORT,
     DOMAIN,
@@ -117,7 +120,9 @@ def _default_options(hass, cloud: bool = False) -> dict[str, Any]:
     Included domains expose wholesale; exposed_entities holds MANUAL
     additions only (empty by default). Cloud mode includes everything
     selectable except the noisy domains (NOISY_DOMAINS); individual
-    noisy-domain entities are added manually when needed.
+    noisy-domain entities are added manually when needed. In both modes the
+    door and life-safety binary sensors are included by device class
+    (DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES).
     """
     included = (
         [d for d in SELECTABLE_DOMAINS if d not in NOISY_DOMAINS]
@@ -128,6 +133,7 @@ def _default_options(hass, cloud: bool = False) -> dict[str, Any]:
         CONF_INCLUDED_DOMAINS: included,
         CONF_EXPOSED_ENTITIES: [],
         CONF_AUTO_ADD_NEW: True if cloud else DEFAULT_AUTO_ADD_NEW,
+        CONF_INCLUDED_BINARY_SENSOR_CLASSES: list(DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES),
     }
 
 
@@ -159,6 +165,10 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     # domain is exposed wholesale. Same key, opposite blast radius — see
     # `async_migrate_entry` in __init__.py.
     VERSION = 2
+    # 2: `included_binary_sensor_classes` exists, so door contacts and
+    # life-safety sensors are published by device class. Minor, because an
+    # older bridge ignores the key and can still load the entry.
+    MINOR_VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -466,6 +476,9 @@ class TurziOptionsFlow(OptionsFlow):
                     CONF_INCLUDED_DOMAINS: user_input.get(
                         CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS
                     ),
+                    CONF_INCLUDED_BINARY_SENSOR_CLASSES: user_input.get(
+                        CONF_INCLUDED_BINARY_SENSOR_CLASSES, []
+                    ),
                     CONF_EXPOSED_ENTITIES: user_input.get(CONF_EXPOSED_ENTITIES, []),
                     CONF_AUTO_ADD_NEW: user_input.get(
                         CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW
@@ -487,6 +500,22 @@ class TurziOptionsFlow(OptionsFlow):
                         options=SELECTABLE_DOMAINS,
                         multiple=True,
                         mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                # Under the domains, because it is the exception to them:
+                # binary_sensor stays out as a domain, these classes get in.
+                vol.Required(
+                    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
+                    default=options.get(
+                        CONF_INCLUDED_BINARY_SENSOR_CLASSES,
+                        DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
+                    ),
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=SELECTABLE_BINARY_SENSOR_CLASSES,
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="binary_sensor_class",
                     )
                 ),
                 vol.Required(

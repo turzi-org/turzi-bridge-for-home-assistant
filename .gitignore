@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .venv/
 custom_components/.DS_Store
+.pytest_cache/

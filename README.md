@@ -91,13 +91,16 @@ What gets published is decided **here, at the bridge**, in the integration's opt
 | Setting | Effect |
 |---|---|
 | **Included domains** | ALL entities in these domains are published |
+| **Binary sensor classes always included** | Binary sensors of these device classes are published even when `binary_sensor` is not an included domain. Defaults to door contacts (`door`, `garage_door`, `opening`, `window`) and life safety (`smoke`, `gas`, `carbon_monoxide`, `moisture`) |
 | **Manually exposed entities** | Individual entities published *in addition* to the included domains (e.g. one specific sensor) |
 | **Automatically expose new entities** | New entities in included domains publish without further action |
 | **Privacy blocklist (never expose)** | These entities are **never** published — overriding every other setting, in every mode, surviving re-enrollment |
 
-Effective exposure = **included domains ∪ manually exposed − privacy blocklist**.
+Effective exposure = **included domains ∪ binary sensors of the included classes ∪ manually exposed − privacy blocklist**.
 
 Cloud enrollment defaults to all controllable domains, deliberately excluding the noisy ones (`sensor`, `binary_sensor`, `automation`, `device_tracker`, `person`) so the platform's device list stays a device list rather than a telemetry feed — add specific sensors via *manually exposed entities* when they matter.
+
+The binary sensor classes are the exception, in every mode: a door's contact is the only way the platform can tell a door is open (its open-door alert reads nothing else), and smoke, gas, carbon monoxide and water-leak sensors are life safety. Motion and occupancy stay out, since they change constantly and say the most about who is home. Remove a class in **Configure**, or put one sensor in the privacy blocklist. Installations set up on an earlier version get these classes once, when they update, and Home Assistant's log says so.
 
 Changes apply immediately: entities leaving the exposed set get their retained state cleared (clients drop them in real time), entities entering it publish their current state.
 

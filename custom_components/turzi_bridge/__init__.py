@@ -21,10 +21,12 @@ from .const import (
     CONF_BRIDGE_TOKEN,
     CONF_CONFIG_REVISION,
     CONF_EXPOSED_ENTITIES,
+    CONF_INCLUDED_BINARY_SENSOR_CLASSES,
     CONF_INCLUDED_DOMAINS,
     CONF_MODE,
     CONF_NEVER_EXPOSE,
     DEFAULT_AUTO_ADD_NEW,
+    DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES,
     DEFAULT_INCLUDED_DOMAINS,
     DOMAIN,
     SIGNAL_CONFIG_UPDATED,
@@ -197,6 +199,23 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> b
     - **The pre-`exposed_entities` label schema**, which has no per-entity
       curation to protect: there `included_domains` IS the whole intent, so it
       is left for `_async_migrate_options` to seed from.
+
+    **v2.1 → v2.2 — door contacts and life-safety sensors are exposed by class.**
+
+    `binary_sensor` is a noisy domain, so no building published a door contact
+    unless somebody added it by hand, and the platform cannot ask for an entity
+    its catalog never listed (turzi-apps DEFERRED_WORK.md D54). v3 adds
+    `included_binary_sensor_classes`, seeded with the door and life-safety
+    classes (`DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES`). A minor version,
+    because an older bridge reading a 2.2 entry simply ignores the new key, so
+    a downgrade still loads.
+
+    Unlike v1 → v2 this one DOES widen what an existing installation publishes,
+    and on purpose: it is the decision (Santiago, 2026-10-06), not a side
+    effect of a renamed key. It is not silent: the log says what is now
+    published and how to undo it. The privacy blocklist still wins, so a
+    sensor somebody blocked stays unpublished. An entry that already lists the
+    key keeps its own value.
     """
     if entry.version == 1:
         options = dict(entry.options)
@@ -219,6 +238,23 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> b
             )
 
         hass.config_entries.async_update_entry(entry, options=options, version=2)
+
+    if entry.version == 2 and entry.minor_version < 2:
+        options = dict(entry.options)
+        if CONF_INCLUDED_BINARY_SENSOR_CLASSES not in options:
+            options[CONF_INCLUDED_BINARY_SENSOR_CLASSES] = list(
+                DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
+            )
+            _LOGGER.warning(
+                "turzi Bridge: '%s' now publishes binary sensors of these device "
+                "classes: %s. A door's contact is what the platform's open-door "
+                "alert reads, and the rest are life-safety sensors. Remove "
+                "classes under Settings → Devices → turzi Bridge → Configure, or "
+                "put a specific sensor in the privacy blocklist.",
+                entry.data.get("house_id", "unknown"),
+                ", ".join(DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES),
+            )
+        hass.config_entries.async_update_entry(entry, options=options, minor_version=2)
 
     return True
 
@@ -274,6 +310,9 @@ async def _async_options_updated(hass: HomeAssistant, entry: TurziConfigEntry) -
         included_domains=entry.options.get(CONF_INCLUDED_DOMAINS, DEFAULT_INCLUDED_DOMAINS),
         auto_add_new=entry.options.get(CONF_AUTO_ADD_NEW, DEFAULT_AUTO_ADD_NEW),
         never_expose=entry.options.get(CONF_NEVER_EXPOSE, []),
+        included_binary_sensor_classes=entry.options.get(
+            CONF_INCLUDED_BINARY_SENSOR_CLASSES, DEFAULT_INCLUDED_BINARY_SENSOR_CLASSES
+        ),
     )
 
     # Acknowledge the applied revision via retained availability (v1.1 §5),

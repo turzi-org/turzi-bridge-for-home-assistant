@@ -117,16 +117,52 @@
         "description": "Elegí qué entidades se publican a la app de Turzi. Las entidades en la lista de privacidad no se publican nunca, en ningún modo — ni siquiera cuando la exposición se administra de forma remota.",
         "data": {
           "included_domains": "Dominios incluidos",
+          "included_binary_sensor_classes": "Clases de sensores binarios siempre incluidas",
           "exposed_entities": "Entidades expuestas manualmente",
           "auto_add_new": "Exponer automáticamente entidades nuevas",
           "never_expose": "Lista de privacidad (nunca exponer)"
         },
         "data_description": {
           "included_domains": "TODAS las entidades de estos dominios se publican automáticamente.",
+          "included_binary_sensor_classes": "Los sensores binarios de estas clases se publican aunque el dominio binary_sensor no esté incluido. El sensor de una puerta es lo que lee la alerta de puerta abierta de la plataforma; humo, gas, monóxido de carbono y humedad (pérdidas de agua) son de seguridad.",
           "exposed_entities": "Entidades individuales publicadas ADEMÁS de los dominios incluidos (p. ej. un sensor puntual).",
           "auto_add_new": "Las entidades nuevas de los dominios incluidos se exponen automáticamente.",
           "never_expose": "Estas entidades no se publican nunca; esta lista pisa cualquier otra configuración y sobrevive a la re-instalación."
         }
+      }
+    }
+  },
+  "selector": {
+    "binary_sensor_class": {
+      "options": {
+        "battery": "Batería",
+        "battery_charging": "Carga de batería",
+        "carbon_monoxide": "Monóxido de carbono",
+        "cold": "Frío",
+        "connectivity": "Conectividad",
+        "door": "Puerta",
+        "garage_door": "Puerta de garaje",
+        "gas": "Gas",
+        "heat": "Calor",
+        "light": "Luz",
+        "lock": "Cerradura",
+        "moisture": "Humedad",
+        "motion": "Movimiento",
+        "moving": "En movimiento",
+        "occupancy": "Ocupación",
+        "opening": "Apertura",
+        "plug": "Enchufe",
+        "power": "Alimentación",
+        "presence": "Presencia",
+        "problem": "Problema",
+        "running": "En funcionamiento",
+        "safety": "Seguridad",
+        "smoke": "Humo",
+        "sound": "Sonido",
+        "tamper": "Manipulación",
+        "update": "Actualización",
+        "vibration": "Vibración",
+        "window": "Ventana"
       }
     }
   }
