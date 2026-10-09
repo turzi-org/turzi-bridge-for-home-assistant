@@ -292,18 +292,23 @@ class TurziMqttBridge:
 
         Uses the DOMAIN_ATTRIBUTES mapping from the Turzi Protocol spec.
         HA attribute names are renamed to protocol names via HA_TO_PROTOCOL_KEY.
+        Every domain also carries HA's `supported_features` bitmask when the
+        entity has one (Turzi Protocol v1.1 §4, capability attributes): it is
+        what says which services the entity accepts. A garage cover publishes
+        `current_position` and still refuses `set_cover_position`; without the
+        bitmask a remote UI offered a slider that could only fail.
         Returns None if no attributes are defined or all values are null.
         """
-        attr_keys = DOMAIN_ATTRIBUTES.get(domain)
-        if not attr_keys:
-            return None
-
         attributes: dict[str, Any] = {}
-        for ha_key in attr_keys:
+        for ha_key in DOMAIN_ATTRIBUTES.get(domain, []):
             value = state.attributes.get(ha_key)
             if value is not None:
                 protocol_key = HA_TO_PROTOCOL_KEY.get(ha_key, ha_key)
                 attributes[protocol_key] = value
+
+        features = state.attributes.get("supported_features")
+        if isinstance(features, int) and not isinstance(features, bool):
+            attributes["supported_features"] = features
 
         return attributes if attributes else None
 

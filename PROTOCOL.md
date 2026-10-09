@@ -306,6 +306,8 @@ On receipt the core SHOULD stop its connection attempts and surface a re-enrollm
 
 ## 2. Domain Attribute Specification
 
+**Every domain** also carries `supported_features` (int) when the entity has one: Home Assistant's feature bitmask for that domain, published unchanged (turzi-apps `PROTOCOL_V1.1.md` §4, capability attributes). It is the authority on which services an entity accepts; for a cover, `CoverEntityFeature` (`OPEN` 1, `CLOSE` 2, `SET_POSITION` 4, `STOP` 8, `OPEN_TILT` 16, `CLOSE_TILT` 32, `STOP_TILT` 64, `SET_TILT_POSITION` 128). Consumers MUST tolerate its absence (bridges before 2026.10.2) and fall back to the domain's usual controls.
+
 ### `cover`
 
 | Attribute | Type | Description |

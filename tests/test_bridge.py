@@ -108,3 +108,32 @@ async def test_reconnecting_clears_what_left_the_scope_and_keeps_the_rest(hass: 
 
     assert bridge._client.cleared(MOTION)
     assert not bridge._client.cleared(DOOR)
+
+
+async def test_a_cover_publishes_which_services_it_accepts(hass: HomeAssistant) -> None:
+    """supported_features is published unchanged (Turzi Protocol v1.1 §4).
+
+    Dev Smoke Test's garage published only its position, so the app offered a
+    position slider that HA refused on every drag.
+    """
+    garage = "cover.garage1"
+    bridge = make_bridge(hass, bridge_entry(hass, domain_filter("cover")))
+    bridge._setup_state_listener()
+
+    # OPEN | CLOSE | STOP: a garage door, no SET_POSITION.
+    hass.states.async_set(garage, "closed", {"device_class": "garage", "current_position": 0, "supported_features": 11})
+    await hass.async_block_till_done()
+
+    payload = json.loads(next(p for t, p, _ in bridge._client.publishes if t == f"house/{HOUSE}/state/cover/garage1"))
+    assert payload["attributes"] == {"device_class": "garage", "current_position": 0, "supported_features": 11}
+
+
+async def test_a_domain_without_an_attribute_map_still_publishes_its_features(hass: HomeAssistant) -> None:
+    bridge = make_bridge(hass, bridge_entry(hass, domain_filter("lock")))
+    bridge._setup_state_listener()
+
+    hass.states.async_set("lock.porton", "locked", {"supported_features": 1})
+    await hass.async_block_till_done()
+
+    payload = json.loads(next(p for t, p, _ in bridge._client.publishes if t == f"house/{HOUSE}/state/lock/porton"))
+    assert payload["attributes"] == {"supported_features": 1}
