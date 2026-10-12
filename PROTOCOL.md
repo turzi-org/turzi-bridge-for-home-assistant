@@ -20,6 +20,7 @@ The Turzi Protocol defines a standardized communication interface between the **
    - [Consumer Guidance: Event-Sourcing the State Stream](#consumer-guidance-event-sourcing-the-state-stream-informative)
    - [Command Payload](#command-payload)
    - [Command Acknowledgment](#command-acknowledgment)
+     - [Service responses](#service-responses)
    - [Availability](#availability)
    - [Heartbeat (deprecated)](#heartbeat-deprecated)
    - [State Reload](#state-reload)
@@ -174,7 +175,37 @@ When the alarm mode mapping is used, the original `parameters` object is discard
 | `executed` | Terminal: the underlying platform action was invoked successfully |
 | `failed` | Terminal: the command was not executed — `reason` MUST explain why |
 
-`reason` values are free-form but SHOULD use these well-known values where applicable: `entity_unavailable`, `entity_not_exposed`, `unsupported_command`, `invalid_parameters`, `platform_error`, `expired`.
+`reason` values are free-form but SHOULD use these well-known values where applicable: `entity_unavailable`, `entity_not_exposed`, `unsupported_command`, `invalid_parameters`, `platform_error`, `expired`. A command naming a service the core does not have fails with `unsupported_command`.
+
+#### Service responses
+
+*(v1.1, amended 2026-10-12)* A service that returns data, as Home Assistant's `weather.get_forecasts` does, carries its result in an OPTIONAL `response` object on the `executed` ack: the service's return value for the one targeted entity. A core calls the platform service with its response requested only when the platform declares that it returns one. A command for a service that returns data, sent to a core that cannot return it, fails with `unsupported_command`; one the platform refuses (for a forecast, a type the entity does not have) fails with `platform_error`.
+
+```json
+{
+  "command": "weather.get_forecasts",
+  "command_id": "018f3c1e-7d2a-7bb8-9d3e-5a1f2b3c4d5f",
+  "issued_at": 1705325400,
+  "parameters": { "type": "daily" },
+  "metadata": { "user_name": "John Doe", "user_email": "john@example.com" }
+}
+```
+
+```json
+{
+  "command_id": "018f3c1e-7d2a-7bb8-9d3e-5a1f2b3c4d5f",
+  "status": "executed",
+  "reason": null,
+  "timestamp": 1705325401,
+  "response": {
+    "forecast": [
+      { "datetime": "2024-01-16T12:00:00+00:00", "condition": "rainy", "temperature": 17.0, "templow": 11.0, "precipitation": 4.2 }
+    ]
+  }
+}
+```
+
+`type` is `daily`, `hourly` or `twice_daily`. Each forecast item has Home Assistant's fields and units (those of the entity's `*_unit` attributes). A response-only service changes nothing in the home, so the Home Assistant connector writes no logbook entry for it.
 
 **Client interpretation** (normative guidance):
 
@@ -446,13 +477,29 @@ No attributes. State values convey all information: `locked`, `unlocked`, `locki
 
 ### `weather`
 
+The state is the current condition, in Home Assistant's words (`sunny`, `partlycloudy`, `rainy`, `clear-night`, …). Attributes keep Home Assistant's names and units: here `temperature` is the air's, not a setpoint. Forecasts are not attributes: they are read with the `weather.get_forecasts` command (see [Service responses](#service-responses)).
+
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `temperature` | float | Current temperature |
-| `humidity` | float | Current humidity percentage |
-| `pressure` | float | Atmospheric pressure |
-| `wind_speed` | float | Wind speed |
-| `wind_bearing` | float | Wind direction in degrees |
+| `temperature` | float | Current temperature, in `temperature_unit` |
+| `apparent_temperature` | float | Feels-like temperature |
+| `dew_point` | float | Dew point |
+| `humidity` | float | Relative humidity, % |
+| `cloud_coverage` | float | Cloud coverage, % |
+| `uv_index` | float | UV index |
+| `pressure` | float | Atmospheric pressure, in `pressure_unit` |
+| `wind_bearing` | float \| string | Wind direction, degrees or a compass point |
+| `wind_gust_speed` | float | Wind gust speed, in `wind_speed_unit` |
+| `wind_speed` | float | Wind speed, in `wind_speed_unit` |
+| `visibility` | float | Visibility, in `visibility_unit` |
+| `temperature_unit` | string | e.g. `°C` |
+| `pressure_unit` | string | e.g. `hPa` |
+| `wind_speed_unit` | string | e.g. `km/h` |
+| `visibility_unit` | string | e.g. `km` |
+| `precipitation_unit` | string | Unit of the forecasts' precipitation, e.g. `mm` |
+| `attribution` | string | The data source's credit, to be shown with the data |
+
+Its `supported_features` (`WeatherEntityFeature`) says which forecasts it has: `FORECAST_DAILY` 1, `FORECAST_HOURLY` 2, `FORECAST_TWICE_DAILY` 4.
 
 ### `person` / `device_tracker`
 

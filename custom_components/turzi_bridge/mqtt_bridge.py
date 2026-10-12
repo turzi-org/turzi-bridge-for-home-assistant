@@ -28,9 +28,10 @@ from homeassistant.core import (
     EventStateChangedData,
     HomeAssistant,
     State,
+    SupportsResponse,
     callback,
 )
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceNotFound
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
@@ -303,7 +304,7 @@ class TurziMqttBridge:
         for ha_key in DOMAIN_ATTRIBUTES.get(domain, []):
             value = state.attributes.get(ha_key)
             if value is not None:
-                protocol_key = HA_TO_PROTOCOL_KEY.get(ha_key, ha_key)
+                protocol_key = HA_TO_PROTOCOL_KEY.get(domain, {}).get(ha_key, ha_key)
                 attributes[protocol_key] = value
 
         features = state.attributes.get("supported_features")
@@ -1062,19 +1063,35 @@ class TurziMqttBridge:
         if parameters:
             service_data.update(parameters)
 
-        # Log to HA logbook
-        try:
-            await self.hass.services.async_call(
-                "logbook",
-                "log",
-                {
-                    "name": entity_slug,
-                    "entity_id": entity_id,
-                    "message": f"turzi App - {user_name} ({service_action})",
-                },
-            )
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("Failed to log to logbook for %s", entity_id)
+        # A service that returns data (PROTOCOL.md, Service responses), as
+        # Home Assistant declares it: weather.get_forecasts. Called with its
+        # response requested, and the targeted entity's result goes back in
+        # the ack. A service this HA does not have raises ServiceNotFound at
+        # the call below, which acks `unsupported_command`; asked first, HA's
+        # supports_response raises KeyError for a domain it has never loaded.
+        if self.hass.services.has_service(service_domain, service_action):
+            supports = self.hass.services.supports_response(service_domain, service_action)
+        else:
+            supports = SupportsResponse.NONE
+        returns_data = supports in (SupportsResponse.ONLY, SupportsResponse.OPTIONAL)
+        # Only reads: nothing happened in the home, and a dashboard asks often.
+        is_read = supports is SupportsResponse.ONLY
+
+        # Log to HA logbook, except a read: a forecast asked for is no action
+        # anyone took.
+        if not is_read:
+            try:
+                await self.hass.services.async_call(
+                    "logbook",
+                    "log",
+                    {
+                        "name": entity_slug,
+                        "entity_id": entity_id,
+                        "message": f"turzi App - {user_name} ({service_action})",
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Failed to log to logbook for %s", entity_id)
 
         # v1.1 §4 — call with a tracked HA context so the resulting state change
         # is attributed origin.type="turzi" with this command_id.
@@ -1094,23 +1111,44 @@ class TurziMqttBridge:
             # as a green tick. The ack is now late by however long the platform
             # takes (clients time out around 5 s) instead of wrong; a slow door
             # is a visible timeout, which is the honest outcome.
-            await self.hass.services.async_call(
+            result = await self.hass.services.async_call(
                 service_domain,
                 service_action,
                 service_data,
                 blocking=True,
                 context=service_context,
+                return_response=returns_data,
             )
-            self._log_event(
-                "info",
-                f"Command {service_domain}.{service_action} → {entity_id} (by {user_name})",
-            )
+            if not is_read:
+                self._log_event(
+                    "info",
+                    f"Command {service_domain}.{service_action} → {entity_id} (by {user_name})",
+                )
             _LOGGER.info(
                 "Executed command %s.%s for %s (by %s <%s>)",
                 service_domain, service_action, entity_id, user_name, user_email,
             )
             if command_id:
-                await self._publish_ack(command_id, "executed")
+                response = None
+                if returns_data:
+                    # HA keys an entity service's response by entity: the one
+                    # this command targeted.
+                    entry = result.get(entity_id) if isinstance(result, dict) else None
+                    response = entry if isinstance(entry, dict) else None
+                if is_read and response is None:
+                    # A read that read nothing did nothing: not `executed`.
+                    await self._publish_ack(command_id, "failed", "unsupported_command")
+                    return
+                await self._publish_ack(command_id, "executed", response=response)
+        except ServiceNotFound as err:
+            # No such service in this HA (an integration not loaded, or a
+            # command from a newer client): a command the core cannot carry
+            # out, not a platform failure.
+            _LOGGER.warning(
+                "Command %s.%s for %s: %s", service_domain, service_action, entity_id, err
+            )
+            if command_id:
+                await self._publish_ack(command_id, "failed", "unsupported_command")
         except HomeAssistantError as err:
             # The platform reporting a normal failure (device unreachable, bad
             # parameters, no such service) — not a bug in the bridge, so no
@@ -1176,17 +1214,27 @@ class TurziMqttBridge:
             await self._publish_availability(self._client, "online")
 
     async def _publish_ack(
-        self, command_id: str, status: str, reason: str | None = None
+        self,
+        command_id: str,
+        status: str,
+        reason: str | None = None,
+        response: dict[str, Any] | None = None,
     ) -> None:
-        """Publish a command acknowledgment (v1.1 §3). No-op without a client."""
+        """Publish a command acknowledgment (v1.1 §3). No-op without a client.
+
+        `response` is a service's return value for the targeted entity, on an
+        `executed` ack only (PROTOCOL.md, Service responses).
+        """
         if self._client is None:
             return
-        payload = {
+        payload: dict[str, Any] = {
             "command_id": command_id,
             "status": status,
             "reason": reason,
             "timestamp": math.floor(datetime.now(tz=timezone.utc).timestamp()),
         }
+        if response is not None and status == "executed":
+            payload["response"] = response
         try:
             await self._client.publish(
                 f"house/{self._house_id}/ack/{command_id}",

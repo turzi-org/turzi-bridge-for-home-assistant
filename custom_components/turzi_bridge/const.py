@@ -282,7 +282,7 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
     ],
     "water_heater": [
         "current_temperature",
-        "target_temperature",
+        "temperature",  # HA's setpoint; renamed to target_temperature in payload
         "min_temp",
         "max_temp",
         "operation_mode",
@@ -296,12 +296,26 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "is_streaming",
         "frontend_stream_type",
     ],
+    # HA's own names, untouched (turzi-apps INTEGRATIONS.md §3.10): the
+    # condition is the state; `supported_features` says which forecasts it has.
     "weather": [
         "temperature",
+        "apparent_temperature",
+        "dew_point",
         "humidity",
+        "cloud_coverage",
+        "uv_index",
         "pressure",
-        "wind_speed",
         "wind_bearing",
+        "wind_gust_speed",
+        "wind_speed",
+        "visibility",
+        "temperature_unit",
+        "pressure_unit",
+        "wind_speed_unit",
+        "visibility_unit",
+        "precipitation_unit",
+        "attribution",
     ],
     "person": [
         "latitude",
@@ -338,10 +352,14 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
     # switch, group, scene, script, button, input_boolean, input_button
 }
 
-# Map HA attribute names → Turzi Protocol key names where they differ.
-# Applied at publish time so payloads always use the protocol-defined field names.
-HA_TO_PROTOCOL_KEY: dict[str, str] = {
-    "temperature": "target_temperature",  # climate: HA uses 'temperature', protocol uses 'target_temperature'
+# Map HA attribute names → Turzi Protocol key names where they differ, per
+# domain. Applied at publish time so payloads always use the protocol-defined
+# field names. Per domain because the same HA name means different things: a
+# climate's `temperature` is its setpoint (the protocol's
+# `target_temperature`), a weather entity's is the air's, and keeps its name.
+HA_TO_PROTOCOL_KEY: dict[str, dict[str, str]] = {
+    "climate": {"temperature": "target_temperature"},
+    "water_heater": {"temperature": "target_temperature"},
 }
 
 # Alarm mode -> HA service action mapping

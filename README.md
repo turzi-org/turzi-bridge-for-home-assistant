@@ -154,6 +154,7 @@ All selectable domains and their published attributes are specified in [PROTOCOL
 | `vacuum` | `battery_level`, `fan_speed`, `fan_speed_list` |
 | `humidifier` | `current_humidity`, `target_humidity`, `min_humidity`/`max_humidity` |
 | `sensor` / `binary_sensor` | `unit_of_measurement`, `device_class` |
+| `weather` | condition as the state; `temperature`, `humidity`, `wind_speed`, … and their units under HA's names; forecasts through `weather.get_forecasts` (not exposed by default) |
 | `switch`, `scene`, `script`, `button`, `input_boolean` | *(state only)* |
 
 ---
