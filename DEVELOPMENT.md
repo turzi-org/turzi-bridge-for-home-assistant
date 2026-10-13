@@ -83,6 +83,7 @@ Cloud mode stores what enrollment returned (`api_base_url`, `bridge_token`, `hou
 
 - `broker` is the Stack's **address**, and the certificate must be valid for `tls_server_name`. No DNS is asked, so the bridge reconnects with the internet down and on networks whose DNS refuses names that point inside. If the address does not answer, the name is tried through DNS, which is how a Stack whose address changed is found; the two alternate while neither connects.
 - `api_base_url` carries the name, and the calls dial `api_address`, verifying the name (`tls.async_post`). Same second try.
+- **Reconnecting needs no key.** *Reconfigure* on a cloud entry offers two ways (`reconfigure_how`): `refresh` asks the API where the broker is now (`GET /bridge/connection`) with the bridge token this installation already holds, and takes the answer; `reconfigure_cloud` enrolls again with a new key. The token is the proof that this is the community's bridge, so `refresh` enrolls nothing and revokes nothing. It is what a Turzi Stack drives when a Home Assistant that is already the building's has to find it again; a bridge the API no longer knows gets `token_revoked` and is left as it was.
 - The name to verify is the only thing given to Python's `ssl`: the chain, the dates and the match are its own checks, against the authorities Home Assistant ships (`certifi`).
 
 ### `config_entry.subentries` (what is published — one row each, no restart)

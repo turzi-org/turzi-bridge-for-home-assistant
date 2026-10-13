@@ -51,7 +51,7 @@ from .const import (
     SUBENTRY_ENTITY_FILTER,
     SUBENTRY_EXCLUSION,
 )
-from .enrollment import EnrollmentError, EnrollResult, async_enroll
+from .enrollment import EnrollmentError, EnrollResult, async_enroll, async_fetch_connection
 from .scope import blocked_of, count_published, domain_filter_title, filters_of, take_snapshot
 from .subentry_flows import DomainFilterFlow, EntityFilterFlow, ExclusionFlow
 
@@ -423,7 +423,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
         # 401. And the `unlinked` repair sends the installer here by name.
         # Cloud entries re-provision; their connection is never edited by hand.
         if entry.data.get(CONF_MODE) == "cloud":
-            return await self.async_step_reconfigure_cloud()
+            return await self.async_step_reconfigure_how()
 
         errors: dict[str, str] = {}
 
@@ -463,6 +463,60 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             # the same house. A different house is a new entry, not an edit.
             data_schema=_build_broker_schema(
                 defaults=dict(entry.data), include_house_id=False
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure_how(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """A cloud entry's two ways to reconnect. The first spends nothing: ask the
+        API where the broker is now, with the token this bridge already holds."""
+        return self.async_show_menu(step_id="reconfigure_how", menu_options=["refresh", "reconfigure_cloud"])
+
+    async def async_step_refresh(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Find the connection again, with this bridge's own token and no key.
+
+        For a building that changed how it is reached: a Turzi Stack that
+        started serving over TLS, or moved. The token this bridge holds is
+        what proves it is the community's, so nothing is enrolled again and
+        nothing is revoked. A Turzi Stack fills this form in by itself.
+        """
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            base_url = (user_input.get(CONF_API_BASE_URL) or entry.data.get(CONF_API_BASE_URL) or DEFAULT_CLOUD_API_BASE_URL).strip()
+            address = (user_input.get(CONF_API_ADDRESS) or "").strip() or None
+            try:
+                found = await async_fetch_connection(self.hass, base_url, entry.data.get(CONF_BRIDGE_TOKEN) or "", address)
+            except EnrollmentError as err:
+                errors["base"] = err.code
+            else:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={
+                        CONF_BROKER: found.mqtt_host,
+                        CONF_PORT: found.mqtt_port,
+                        CONF_USERNAME: found.mqtt_username,
+                        CONF_PASSWORD: found.mqtt_password,
+                        CONF_USE_TLS: found.mqtt_tls,
+                        CONF_TLS_SERVER_NAME: found.mqtt_tls_server_name,
+                        CONF_API_BASE_URL: found.api_base_url or base_url,
+                        CONF_API_ADDRESS: found.api_address or address,
+                    },
+                    reason="refresh_successful",
+                )
+
+        return self.async_show_form(
+            step_id="refresh",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_API_BASE_URL, default=entry.data.get(CONF_API_BASE_URL, DEFAULT_CLOUD_API_BASE_URL)): str,
+                    vol.Optional(CONF_API_ADDRESS, description={"suggested_value": entry.data.get(CONF_API_ADDRESS) or ""}): str,
+                }
             ),
             errors=errors,
         )

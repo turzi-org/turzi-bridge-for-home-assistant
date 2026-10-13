@@ -97,6 +97,26 @@
         "data_description": {
           "auto_add_new": "Encendido: una entidad nueva que coincide con un filtro de dominio se publica sola. Apagado: los filtros de dominio cubren solo las entidades que existen al guardarlos; una nueva espera hasta que vuelvas a guardar."
         }
+      },
+      "reconfigure_how": {
+        "title": "Reconectar el puente",
+        "description": "Elegí cómo. Buscar la conexión de nuevo no gasta ninguna clave y no desconecta nada: sirve cuando el edificio cambió la forma de llegar a su equipo de Turzi.",
+        "menu_options": {
+          "refresh": "Buscar la conexión de nuevo (sin clave)",
+          "reconfigure_cloud": "Enrolar de nuevo con una clave nueva"
+        }
+      },
+      "refresh": {
+        "title": "Buscar la conexión de nuevo",
+        "description": "El puente le pregunta a Turzi dónde está su conexión ahora, con la credencial que ya tiene. No se enrola nada de nuevo.",
+        "data": {
+          "api_base_url": "URL base de la API",
+          "api_address": "Dirección de Turzi Stack"
+        },
+        "data_description": {
+          "api_base_url": "Solo cambiala si te lo indican. Una Turzi Stack la completa sola.",
+          "api_address": "La completa Turzi Stack. Dejala vacía si lo hacés a mano."
+        }
       }
     },
     "error": {
@@ -111,13 +131,15 @@
       "invalid_request": "El servidor rechazó el pedido. Fijate que el código de instalación esté pegado entero.",
       "api_url_invalid": "Ninguna API de Turzi respondió en esa dirección. Revisá la URL base de la API — tiene que incluir la ruta /api/v2.",
       "building_tls_pending": "El equipo de Turzi en el edificio todavía está preparando su conexión cifrada. Esperá uno o dos minutos e intentá de nuevo con una clave nueva.",
-      "building_broker_unknown": "El edificio todavía no está conectado a Turzi. Revisá el equipo de Turzi del edificio e intentá de nuevo."
+      "building_broker_unknown": "El edificio todavía no está conectado a Turzi. Revisá el equipo de Turzi del edificio e intentá de nuevo.",
+      "token_revoked": "Turzi ya no reconoce a este puente como el de la comunidad. Enrolalo de nuevo con una clave nueva."
     },
     "abort": {
       "already_configured": "Este ID de casa ya está configurado.",
       "house_already_configured": "Ese código de instalación pertenece a una casa que ya tiene otra entrada de turzi Bridge, así que esta entrada quedó intacta. El código ya se consumió y el enrolamiento revocó la conexión de esa otra entrada — pedí uno nuevo y usalo ahí.",
       "reconfigure_successful": "Configuración del broker actualizada.",
-      "reauth_successful": "Reconectado correctamente."
+      "reauth_successful": "Reconectado correctamente.",
+      "refresh_successful": "Conexión encontrada. El puente se está reconectando."
     }
   },
   "issues": {

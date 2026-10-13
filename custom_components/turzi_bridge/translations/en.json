@@ -97,6 +97,26 @@
         "data_description": {
           "auto_add_new": "On: a new entity that matches a domain filter is published by itself. Off: domain filters cover only the entities that exist when they are saved; a new one waits until you save again."
         }
+      },
+      "reconfigure_how": {
+        "title": "Reconnect the bridge",
+        "description": "Choose how. Finding the connection again spends no key and disconnects nothing: it is for a building that changed how its Turzi machine is reached.",
+        "menu_options": {
+          "refresh": "Find the connection again (no key)",
+          "reconfigure_cloud": "Enroll again with a new key"
+        }
+      },
+      "refresh": {
+        "title": "Find the connection again",
+        "description": "The bridge asks Turzi where its connection is now, with the credential it already holds. Nothing is enrolled again.",
+        "data": {
+          "api_base_url": "API base URL",
+          "api_address": "Turzi Stack address"
+        },
+        "data_description": {
+          "api_base_url": "Only change this when told to. A Turzi Stack fills it in by itself.",
+          "api_address": "Filled in by a Turzi Stack. Leave it empty when you do this by hand."
+        }
       }
     },
     "error": {
@@ -111,13 +131,15 @@
       "invalid_request": "The server rejected the request. Check that the installation key was pasted whole.",
       "api_url_invalid": "No Turzi API answered at that address. Check the API base URL — it must include the /api/v2 path.",
       "building_tls_pending": "The Turzi machine in the building is still preparing its encrypted connection. Wait a minute or two and try again with a new key.",
-      "building_broker_unknown": "The building is not connected to Turzi yet. Check the Turzi machine in the building and try again."
+      "building_broker_unknown": "The building is not connected to Turzi yet. Check the Turzi machine in the building and try again.",
+      "token_revoked": "Turzi no longer knows this bridge as the community's. Enroll it again with a new key."
     },
     "abort": {
       "already_configured": "This house ID is already configured.",
       "house_already_configured": "That installation key belongs to a house another turzi Bridge entry already holds, so this entry was left untouched. The key has been used up, and enrolling it revoked that other entry's connection — get a new key and use it there.",
       "reconfigure_successful": "Broker settings updated successfully.",
-      "reauth_successful": "Reconnected successfully."
+      "reauth_successful": "Reconnected successfully.",
+      "refresh_successful": "Connection found. The bridge is reconnecting."
     }
   },
   "issues": {

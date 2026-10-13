@@ -16,7 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN, PROTOCOL_VERSION
-from .tls import async_post
+from .tls import async_post, async_request
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -151,4 +151,68 @@ async def async_enroll(
         )
     except (KeyError, TypeError, ValueError) as err:
         _LOGGER.error("Malformed enrollment response: %s", err)
+        raise EnrollmentError("cannot_connect") from err
+
+
+@dataclass
+class ConnectionResult:
+    """Where this bridge's broker is now, and how the API is reached, as the API says."""
+
+    mqtt_host: str
+    mqtt_port: int
+    mqtt_tls: bool
+    mqtt_username: str
+    mqtt_password: str
+    mqtt_tls_server_name: str | None = None
+    api_base_url: str | None = None
+    api_address: str | None = None
+
+
+async def async_fetch_connection(
+    hass: HomeAssistant, base_url: str, bridge_token: str, api_address: str | None = None
+) -> ConnectionResult:
+    """Call GET {base_url}/bridge/connection with this bridge's own token.
+
+    Nothing is enrolled: the token this installation already holds is what
+    proves it is the community's bridge. It is how a bridge finds its broker
+    again when the building changed how it is reached (a Turzi Stack that
+    started serving over TLS, or moved). Raises EnrollmentError with a stable
+    code: `token_revoked` when the API no longer knows this bridge.
+    """
+    try:
+        async with async_request(
+            hass, "GET", base_url, api_address, "/bridge/connection",
+            headers={"Authorization": f"Bearer {bridge_token}"}, timeout=ENROLL_TIMEOUT,
+        ) as resp:
+            if resp.status == 401:
+                raise EnrollmentError("token_revoked")
+            if resp.status != 200:
+                try:
+                    code = (await resp.json()).get("error")
+                except Exception:  # noqa: BLE001 — an empty or non-JSON body
+                    code = None
+                _LOGGER.error("Asking for the connection failed with HTTP %s (server code: %s)", resp.status, code or "none")
+                raise EnrollmentError(code if isinstance(code, str) else "cannot_connect")
+            body = await resp.json()
+    except EnrollmentError:
+        raise
+    except (aiohttp.ClientError, TimeoutError) as err:
+        _LOGGER.error("Asking for the connection failed: %s", err)
+        raise EnrollmentError("cannot_connect") from err
+
+    try:
+        mqtt = body["mqtt"]
+        api = body.get("api") or {}
+        return ConnectionResult(
+            mqtt_host=mqtt["host"],
+            mqtt_port=int(mqtt.get("port", 1883)),
+            mqtt_tls=bool(mqtt.get("tls", False)),
+            mqtt_username=mqtt["username"],
+            mqtt_password=mqtt["password"],
+            mqtt_tls_server_name=str(mqtt["tls_server_name"]) if mqtt.get("tls_server_name") else None,
+            api_base_url=str(api["base_url"]) if api.get("base_url") else None,
+            api_address=str(api["address"]) if api.get("address") else None,
+        )
+    except (KeyError, TypeError, ValueError) as err:
+        _LOGGER.error("Malformed connection answer: %s", err)
         raise EnrollmentError("cannot_connect") from err

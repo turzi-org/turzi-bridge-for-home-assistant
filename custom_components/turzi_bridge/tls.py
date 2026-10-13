@@ -91,6 +91,15 @@ async def async_post(
     hass: HomeAssistant, base_url: str, address: str | None, path: str, **kwargs: Any
 ) -> AsyncIterator[aiohttp.ClientResponse]:
     """POST to the API as this installation reaches it: through the Stack by its address, or as the URL says."""
+    async with async_request(hass, "POST", base_url, address, path, **kwargs) as response:
+        yield response
+
+
+@asynccontextmanager
+async def async_request(
+    hass: HomeAssistant, method: str, base_url: str, address: str | None, path: str, **kwargs: Any
+) -> AsyncIterator[aiohttp.ClientResponse]:
+    """One call to the API as this installation reaches it."""
     session = async_get_clientsession(hass)
     unreachable: aiohttp.ClientConnectorError | None = None
     for url, name in ways(base_url, address):
@@ -98,7 +107,7 @@ async def async_post(
         if name:
             extra = {"ssl": await async_stack_context(hass, name), "server_hostname": name}
         try:
-            response = await session.post(f"{url.rstrip('/')}{path}", **extra, **kwargs)
+            response = await session.request(method, f"{url.rstrip('/')}{path}", **extra, **kwargs)
         except aiohttp.ClientConnectorError as err:
             # Nobody at that address, or somebody who is not the Stack: the next way.
             unreachable = err
