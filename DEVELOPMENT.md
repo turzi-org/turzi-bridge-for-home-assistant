@@ -153,6 +153,14 @@ pytest
 
 They cover the publishing rule, the catalog, publishing and retained cleanup, setup, the three add flows and editing a row, Configure, remote revisions and the config-entry migrations. There is no CI here: run them before pushing.
 
+One test needs a real MQTT broker and is skipped without one: `tests/test_real_broker.py` connects the bridge to it and plays the platform's side, to check that a late command is refused and a repeated one runs once. Give it a throwaway broker that takes anonymous clients (never one anything else uses); the test harness only allows 127.0.0.1, so reach a broker elsewhere through an SSH tunnel:
+
+```bash
+docker run -d --name lab-broker -p 127.0.0.1:18831:1883 eclipse-mosquitto:2 sh -c \
+  'printf "listener 1883\nallow_anonymous true\n" > /tmp/m.conf && exec mosquitto -c /tmp/m.conf'
+TURZI_LAB_BROKER=127.0.0.1:18831 pytest tests/test_real_broker.py
+```
+
 ## Testing Against a Real Stack
 
 The platform side (API, broker, Community Manager) lives in the `turzi-apps` repo; its dev stack runs the API + Postgres in Docker and Mosquitto 2.x with dynsec (TCP :1883, WebSockets :9001). Point a dev HA at it by enrolling normally with a token generated in the TCM — the whole loop (enrollment → catalog → placement → live control → audit ledger) is exercisable end-to-end. Useful checks:
