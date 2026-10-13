@@ -13,10 +13,10 @@ import aiohttp
 
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN, PROTOCOL_VERSION
+from .tls import async_post
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,12 +40,20 @@ class EnrollResult:
     mqtt_tls: bool
     mqtt_username: str
     mqtt_password: str
+    # With a Turzi Stack in the building: the name the broker's certificate is
+    # for, and how the API is reached through it from now on. None otherwise.
+    mqtt_tls_server_name: str | None = None
+    api_base_url: str | None = None
+    api_address: str | None = None
 
 
 async def async_enroll(
-    hass: HomeAssistant, base_url: str, enrollment_token: str
+    hass: HomeAssistant, base_url: str, enrollment_token: str, api_address: str | None = None
 ) -> EnrollResult:
-    """Call POST {base_url}/bridge/enroll and return the provisioned config."""
+    """Call POST {base_url}/bridge/enroll and return the provisioned config.
+
+    `api_address` is where to dial when `base_url` names a Turzi Stack (tls.py).
+    """
     integration = await async_get_integration(hass, DOMAIN)
     payload = {
         "enrollment_token": enrollment_token.strip(),
@@ -57,10 +65,9 @@ async def async_enroll(
         },
     }
 
-    session = async_get_clientsession(hass)
     url = f"{base_url.rstrip('/')}/bridge/enroll"
     try:
-        async with session.post(url, json=payload, timeout=ENROLL_TIMEOUT) as resp:
+        async with async_post(hass, base_url, api_address, "/bridge/enroll", json=payload, timeout=ENROLL_TIMEOUT) as resp:
             # El servidor manda un código estable en el cuerpo: {"error": "..."}.
             # Se lee ANTES de decidir, porque es más específico que el status.
             server_code: str | None = None
@@ -138,6 +145,9 @@ async def async_enroll(
             mqtt_tls=bool(mqtt.get("tls", False)),
             mqtt_username=mqtt["username"],
             mqtt_password=mqtt["password"],
+            mqtt_tls_server_name=str(mqtt["tls_server_name"]) if mqtt.get("tls_server_name") else None,
+            api_base_url=str(api["base_url"]) if (api := body.get("api") or {}).get("base_url") else None,
+            api_address=str(api["address"]) if api.get("address") else None,
         )
     except (KeyError, TypeError, ValueError) as err:
         _LOGGER.error("Malformed enrollment response: %s", err)

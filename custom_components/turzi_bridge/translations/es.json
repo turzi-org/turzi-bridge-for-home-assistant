@@ -13,11 +13,13 @@
         "description": "Ingresá el código de instalación generado en el Turzi Community Manager. El bridge se aprovisiona automáticamente.",
         "data": {
           "enrollment_key": "Código de instalación",
-          "api_base_url": "URL base de la API"
+          "api_base_url": "URL base de la API",
+          "api_address": "Dirección de Turzi Stack"
         },
         "data_description": {
           "enrollment_key": "Código de un solo uso (TRZ-XXXX-XXXX-XXXX) generado en el Turzi Community Manager.",
-          "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado."
+          "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado.",
+          "api_address": "La completa Turzi Stack cuando configura el puente. Dejala vacía si lo hacés a mano."
         }
       },
       "manual": {
@@ -65,7 +67,11 @@
         "description": "La plataforma desvinculó este bridge. Ingresá un nuevo código de instalación para reconectarlo — los dominios incluidos, las entidades expuestas y la lista de privacidad se conservan.",
         "data": {
           "enrollment_key": "Código de instalación",
-          "api_base_url": "URL base de la API"
+          "api_base_url": "URL base de la API",
+          "api_address": "Dirección de Turzi Stack"
+        },
+        "data_description": {
+          "api_address": "La completa Turzi Stack cuando configura el puente. Dejala vacía si lo hacés a mano."
         }
       },
       "reconfigure_cloud": {
@@ -73,11 +79,13 @@
         "description": "Este bridge lo aprovisiona Turzi Cloud, así que sus datos de broker no se editan a mano. Ingresá un nuevo código de instalación para reaprovisionarlo — los dominios incluidos, las entidades expuestas y la lista de privacidad se conservan.",
         "data": {
           "enrollment_key": "Código de instalación",
-          "api_base_url": "URL base de la API"
+          "api_base_url": "URL base de la API",
+          "api_address": "Dirección de Turzi Stack"
         },
         "data_description": {
           "enrollment_key": "Código de un solo uso (TRZ-XXXX-XXXX-XXXX) generado en el Turzi Community Manager. Al enviarlo se revoca la conexión actual de este bridge, así que usá solo un código que quieras gastar.",
-          "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado."
+          "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado.",
+          "api_address": "La completa Turzi Stack cuando configura el puente. Dejala vacía si lo hacés a mano."
         }
       },
       "settings": {
@@ -101,7 +109,9 @@
       "broker_not_configured": "El broker MQTT de la comunidad no tiene cargada su credencial de dynsec, así que no se puede acuñar la credencial de esta casa. Cargala para ese broker en el panel de administración (Brokers MQTT) y probá de nuevo.",
       "community_has_no_smart_home_connection": "Esta comunidad todavía no tiene un broker MQTT asignado. Asignale uno desde el panel de administración y probá de nuevo.",
       "invalid_request": "El servidor rechazó el pedido. Fijate que el código de instalación esté pegado entero.",
-      "api_url_invalid": "Ninguna API de Turzi respondió en esa dirección. Revisá la URL base de la API — tiene que incluir la ruta /api/v2."
+      "api_url_invalid": "Ninguna API de Turzi respondió en esa dirección. Revisá la URL base de la API — tiene que incluir la ruta /api/v2.",
+      "building_tls_pending": "El equipo de Turzi en el edificio todavía está preparando su conexión cifrada. Esperá uno o dos minutos e intentá de nuevo con una clave nueva.",
+      "building_broker_unknown": "El edificio todavía no está conectado a Turzi. Revisá el equipo de Turzi del edificio e intentá de nuevo."
     },
     "abort": {
       "already_configured": "Este ID de casa ya está configurado.",

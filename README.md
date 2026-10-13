@@ -66,6 +66,7 @@ Paste the single-use enrollment code (`TRZ-XXXX-XXXX-XXXX`) generated in the Tur
 
 - The token is single-use and expires (48 h by default). If it was already used or expired, generate a new one in the Community Manager.
 - The **API base URL** field only matters when enrolling against a self-hosted Turzi backend.
+- **Turzi Stack address** is filled in by a Turzi Stack when it sets the bridge up in a building. Leave it empty otherwise.
 - If the platform later unlinks this bridge, a **repair issue** appears in HA prompting re-enrollment; the bridge stops reconnecting on its own.
 
 ### Self-hosted / manual broker

@@ -36,10 +36,12 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 
+from .tls import async_stack_context
 from .exposure import PublishScope
 from .scope import blocked_of, scope_of
 
 from .const import (
+    CONF_TLS_SERVER_NAME,
     ALARM_MODE_MAP,
     CLOCK_SKEW_TOLERANCE_SECONDS,
     CONF_BROKER,
@@ -116,11 +118,16 @@ class TurziMqttBridge:
         entry_id: str,
         scope: PublishScope,
         never_expose: list[str] | None = None,
+        tls_server_name: str | None = None,
     ) -> None:
         """Initialize the MQTT bridge."""
         self.hass = hass
         self._broker = broker
         self._port = port
+        # A broker behind a Turzi Stack: `broker` is the Stack's address in the
+        # building and this is the name its certificate is for (tls.py).
+        self._tls_server_name = tls_server_name or None
+        self._by_name = False   # the address did not answer: the name, through DNS, is being tried
         self._username = username or None
         self._password = password or None
         self._house_id = house_id
@@ -191,6 +198,7 @@ class TurziMqttBridge:
             entry_id=entry.entry_id,
             scope=scope_of(entry),
             never_expose=sorted(blocked_of(entry)),
+            tls_server_name=entry.data.get(CONF_TLS_SERVER_NAME),
         )
 
     # -------------------------------------------------------------------------
@@ -220,6 +228,7 @@ class TurziMqttBridge:
         return {
             "status": self._connection_status,
             "broker": self._broker,
+            "tls_server_name": self._tls_server_name,
             "port": self._port,
             "house_id": self._house_id,
             "use_tls": self._use_tls,
@@ -503,9 +512,20 @@ class TurziMqttBridge:
                         ssl.create_default_context
                     )
                 tls_context = self._tls_context
+                # Behind a Turzi Stack: its address, with a certificate that must be
+                # valid for its name. No DNS is asked, so this works with the internet
+                # down and on networks whose DNS refuses names that point inside.
+                # When the address stops answering, the name through DNS is tried,
+                # which is how a Stack whose address changed is found again.
+                hostname = self._broker
+                if self._use_tls and self._tls_server_name:
+                    if self._by_name:
+                        hostname = self._tls_server_name
+                    else:
+                        tls_context = await async_stack_context(self.hass, self._tls_server_name)
 
                 async with aiomqtt.Client(
-                    hostname=self._broker,
+                    hostname=hostname,
                     port=self._port,
                     username=self._username,
                     password=self._password,
@@ -568,6 +588,9 @@ class TurziMqttBridge:
                 self._client = None
                 if self._stopping:
                     break
+                if self._tls_server_name and self._connection_status != "connected":
+                    # It never connected this time: the other way next (the address, or the name).
+                    self._by_name = not self._by_name
                 self._last_disconnect_time = datetime.now(tz=timezone.utc)
                 self._reconnect_count += 1
                 self._connection_status = "reconnecting"

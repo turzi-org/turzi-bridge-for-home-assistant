@@ -26,7 +26,9 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_API_ADDRESS,
     CONF_API_BASE_URL,
+    CONF_TLS_SERVER_NAME,
     CONF_AUTO_ADD_NEW,
     CONF_BRIDGE_TOKEN,
     CONF_BROKER,
@@ -49,7 +51,7 @@ from .const import (
     SUBENTRY_ENTITY_FILTER,
     SUBENTRY_EXCLUSION,
 )
-from .enrollment import EnrollmentError, async_enroll
+from .enrollment import EnrollmentError, EnrollResult, async_enroll
 from .scope import blocked_of, count_published, domain_filter_title, filters_of, take_snapshot
 from .subentry_flows import DomainFilterFlow, EntityFilterFlow, ExclusionFlow
 
@@ -128,6 +130,28 @@ def _settings_schema(auto_add_new: bool) -> vol.Schema:
     return vol.Schema({vol.Required(CONF_AUTO_ADD_NEW, default=auto_add_new): BooleanSelector()})
 
 
+def _enrolled_data(result: EnrollResult, base_url: str, api_address: str | None) -> dict[str, Any]:
+    """What an entry keeps from an enrollment.
+
+    With a Turzi Stack in the building the answer also says how the API is
+    reached from now on (the Stack's name, and its address to dial) and which
+    name the broker's certificate is for: those win over what was typed.
+    """
+    return {
+        CONF_MODE: "cloud",
+        CONF_BROKER: result.mqtt_host,
+        CONF_PORT: result.mqtt_port,
+        CONF_USERNAME: result.mqtt_username,
+        CONF_PASSWORD: result.mqtt_password,
+        CONF_HOUSE_ID: result.house_id,
+        CONF_USE_TLS: result.mqtt_tls,
+        CONF_TLS_SERVER_NAME: result.mqtt_tls_server_name,
+        CONF_BRIDGE_TOKEN: result.bridge_token,
+        CONF_API_BASE_URL: result.api_base_url or base_url,
+        CONF_API_ADDRESS: result.api_address or api_address or None,
+    }
+
+
 def _cloud_schema(default_base_url: str) -> vol.Schema:
     """Enrollment form: the key is short-lived and single-use — a plain
     visible text field, never password-masked."""
@@ -137,6 +161,9 @@ def _cloud_schema(default_base_url: str) -> vol.Schema:
                 TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="off")
             ),
             vol.Optional(CONF_API_BASE_URL, default=default_base_url): str,
+            # Filled in by a Turzi Stack when it sets the bridge up: where to
+            # dial for a base URL that carries the Stack's name. Empty otherwise.
+            vol.Optional(CONF_API_ADDRESS): str,
         }
     )
 
@@ -195,22 +222,12 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             ).strip()
             try:
                 result = await async_enroll(
-                    self.hass, base_url, user_input[CONF_ENROLLMENT_TOKEN]
+                    self.hass, base_url, user_input[CONF_ENROLLMENT_TOKEN], user_input.get(CONF_API_ADDRESS)
                 )
             except EnrollmentError as err:
                 errors["base"] = err.code
             else:
-                datos = {
-                    CONF_MODE: "cloud",
-                    CONF_BROKER: result.mqtt_host,
-                    CONF_PORT: result.mqtt_port,
-                    CONF_USERNAME: result.mqtt_username,
-                    CONF_PASSWORD: result.mqtt_password,
-                    CONF_HOUSE_ID: result.house_id,
-                    CONF_USE_TLS: result.mqtt_tls,
-                    CONF_BRIDGE_TOKEN: result.bridge_token,
-                    CONF_API_BASE_URL: base_url,
-                }
+                datos = _enrolled_data(result, base_url, user_input.get(CONF_API_ADDRESS))
                 await self.async_set_unique_id(result.house_id)
 
                 # `updates=` NO es un detalle: enrolar ya fue DESTRUCTIVO del
@@ -284,7 +301,10 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             ).strip()
             try:
                 result = await async_enroll(
-                    self.hass, base_url, user_input[CONF_ENROLLMENT_TOKEN]
+                    self.hass,
+                    base_url,
+                    user_input[CONF_ENROLLMENT_TOKEN],
+                    user_input.get(CONF_API_ADDRESS) or entry.data.get(CONF_API_ADDRESS),
                 )
             except EnrollmentError as err:
                 errors["base"] = err.code
@@ -309,17 +329,9 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_update_reload_and_abort(
                     entry,
                     title=f"turzi Bridge for Home Assistant — {result.house_id}",
-                    data={
-                        CONF_MODE: "cloud",
-                        CONF_BROKER: result.mqtt_host,
-                        CONF_PORT: result.mqtt_port,
-                        CONF_USERNAME: result.mqtt_username,
-                        CONF_PASSWORD: result.mqtt_password,
-                        CONF_HOUSE_ID: result.house_id,
-                        CONF_USE_TLS: result.mqtt_tls,
-                        CONF_BRIDGE_TOKEN: result.bridge_token,
-                        CONF_API_BASE_URL: base_url,
-                    },
+                    data=_enrolled_data(
+                        result, base_url, user_input.get(CONF_API_ADDRESS) or entry.data.get(CONF_API_ADDRESS)
+                    ),
                     reason=success_reason,
                 )
 

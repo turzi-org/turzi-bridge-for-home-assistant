@@ -23,6 +23,12 @@ CONF_MODE = "mode"  # "cloud" | "manual"
 CONF_BRIDGE_TOKEN = "bridge_token"
 CONF_API_BASE_URL = "api_base_url"
 CONF_ENROLLMENT_TOKEN = "enrollment_key"
+# A broker inside the building, behind a Turzi Stack (turzi-apps BUILDING_TLS.md):
+# the host is the Stack's address, and this is the name its certificate is for.
+CONF_TLS_SERVER_NAME = "tls_server_name"
+# The Stack's address, for the calls to the API that go through it: the URL
+# carries the name, and this is where to dial.
+CONF_API_ADDRESS = "api_address"
 # `turzi.cloud` es infraestructura máquina-a-máquina (broker, relays, media);
 # la API vive en `turzi.com`. `api.turzi.cloud` resuelve a OTRA máquina y
 # contesta 404 en /api/v2: el default apuntaba a algo que no es esta API.

@@ -13,11 +13,13 @@
         "description": "Paste the enrollment key generated in the Turzi Community Manager. The bridge will be provisioned automatically.",
         "data": {
           "enrollment_key": "Enrollment key",
-          "api_base_url": "API base URL"
+          "api_base_url": "API base URL",
+          "api_address": "Turzi Stack address"
         },
         "data_description": {
           "enrollment_key": "Single-use installation key (TRZ-XXXX-XXXX-XXXX) generated in the Turzi Community Manager.",
-          "api_base_url": "Only change this when connecting to a self-hosted Turzi backend."
+          "api_base_url": "Only change this when connecting to a self-hosted Turzi backend.",
+          "api_address": "Filled in by a Turzi Stack when it sets the bridge up. Leave it empty when you do this by hand."
         }
       },
       "manual": {
@@ -65,7 +67,11 @@
         "description": "This bridge was unlinked from the platform. Enter a new installation key to reconnect — your included domains, exposed entities and privacy blocklist are preserved.",
         "data": {
           "enrollment_key": "Enrollment key",
-          "api_base_url": "API base URL"
+          "api_base_url": "API base URL",
+          "api_address": "Turzi Stack address"
+        },
+        "data_description": {
+          "api_address": "Filled in by a Turzi Stack when it sets the bridge up. Leave it empty when you do this by hand."
         }
       },
       "reconfigure_cloud": {
@@ -73,11 +79,13 @@
         "description": "This bridge is provisioned by Turzi Cloud, so its broker settings are not edited by hand. Enter a new installation key to re-provision it — your included domains, exposed entities and privacy blocklist are preserved.",
         "data": {
           "enrollment_key": "Enrollment key",
-          "api_base_url": "API base URL"
+          "api_base_url": "API base URL",
+          "api_address": "Turzi Stack address"
         },
         "data_description": {
           "enrollment_key": "Single-use installation key (TRZ-XXXX-XXXX-XXXX) generated in the Turzi Community Manager. Submitting it revokes this bridge's current connection, so only use a key you mean to spend.",
-          "api_base_url": "Only change this when connecting to a self-hosted Turzi backend."
+          "api_base_url": "Only change this when connecting to a self-hosted Turzi backend.",
+          "api_address": "Filled in by a Turzi Stack when it sets the bridge up. Leave it empty when you do this by hand."
         }
       },
       "settings": {
@@ -101,7 +109,9 @@
       "broker_not_configured": "The community's MQTT broker has no dynsec admin credential loaded, so no per-home credential can be minted. Load it for that broker in the Admin Panel (Brokers MQTT) and try again.",
       "community_has_no_smart_home_connection": "This community has no MQTT broker assigned yet. Assign one in the Admin Panel, then try again.",
       "invalid_request": "The server rejected the request. Check that the installation key was pasted whole.",
-      "api_url_invalid": "No Turzi API answered at that address. Check the API base URL — it must include the /api/v2 path."
+      "api_url_invalid": "No Turzi API answered at that address. Check the API base URL — it must include the /api/v2 path.",
+      "building_tls_pending": "The Turzi machine in the building is still preparing its encrypted connection. Wait a minute or two and try again with a new key.",
+      "building_broker_unknown": "The building is not connected to Turzi yet. Check the Turzi machine in the building and try again."
     },
     "abort": {
       "already_configured": "This house ID is already configured.",

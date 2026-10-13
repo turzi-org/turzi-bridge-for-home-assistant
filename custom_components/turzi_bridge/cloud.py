@@ -28,7 +28,6 @@ from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.loader import async_get_integration
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
@@ -36,6 +35,7 @@ from homeassistant.helpers.issue_registry import (
     async_delete_issue,
 )
 
+from .tls import async_post
 from .scope import (
     blocked_of,
     candidates,
@@ -47,6 +47,7 @@ from .scope import (
 )
 
 from .const import (
+    CONF_API_ADDRESS,
     CONF_API_BASE_URL,
     CONF_AUTO_ADD_NEW,
     CONF_BRIDGE_TOKEN,
@@ -236,11 +237,12 @@ class TurziCloudSync:
         if payload["catalog_hash"] == self._last_hash:
             return
 
-        session = async_get_clientsession(self.hass)
-        url = f"{base_url.rstrip('/')}/bridge/catalog"
         try:
-            async with session.post(
-                url,
+            async with async_post(
+                self.hass,
+                base_url,
+                self.entry.data.get(CONF_API_ADDRESS),
+                "/bridge/catalog",
                 json=payload,
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=CATALOG_TIMEOUT,
