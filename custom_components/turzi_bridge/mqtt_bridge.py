@@ -31,10 +31,12 @@ from homeassistant.core import (
     SupportsResponse,
     callback,
 )
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.exceptions import HomeAssistantError, ServiceNotFound
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
+from homeassistant.loader import async_get_integration
 
 from .tls import async_stack_context
 from .exposure import PublishScope
@@ -144,6 +146,9 @@ class TurziMqttBridge:
         self._unsub_state_listener: callback | None = None
         self._unsub_reload_listener: callback | None = None
         self._unsub_registry_listener: callback | None = None
+        self._unsub_stop_listener: callback | None = None
+        # Said in every "online": what replaces a bridge reads it to know the new one connected.
+        self._bridge_version: str | None = None
         self._stopping = False
         # Built once, off the event loop, and reused for every reconnect
         # (see `_connection_loop`).
@@ -333,6 +338,8 @@ class TurziMqttBridge:
         # broker last run, so the first connect can tell "still exposed" from
         # "left behind" (see `_reconcile_retained_state`).
         await self._async_load_published()
+        await self._async_read_version()
+        self._setup_stop_listener()
         self._setup_state_listener()
         self._setup_reload_listener()
         self._setup_registry_listener()
@@ -340,24 +347,55 @@ class TurziMqttBridge:
             self._connection_loop(), "turzi_mqtt_connection_loop"
         )
 
+    async def _async_read_version(self) -> None:
+        """Which bridge this is, as its manifest says."""
+        integration = await async_get_integration(self.hass, DOMAIN)
+        self._bridge_version = str(integration.version) if integration.version else None
+
+    def _setup_stop_listener(self) -> None:
+        """Say so on the broker when Home Assistant stops.
+
+        Home Assistant stopping does not unload its integrations: it cancels
+        their tasks. This bridge's connection then closes cleanly, so the broker
+        does not send the last will either, and "online" stayed there all
+        through a restart, and for ever if Home Assistant did not come back
+        (measured 2026-10-13: 18 s away in a restart, never shown as away).
+        """
+        async def _on_stop(_event: Event) -> None:
+            self._unsub_stop_listener = None        # it fires once, and removes itself
+            await self._async_say_leaving()
+
+        self._unsub_stop_listener = self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _on_stop)
+
+    async def _async_say_leaving(self) -> None:
+        """Overwrite the retained availability with a deliberate goodbye (PROTOCOL v1.1 §1).
+
+        Clients then see a shutdown at once instead of a bridge that looks
+        connected, or of waiting on the broker's keepalive.
+        """
+        if self._client is None:
+            return
+        try:
+            await self._client.publish(
+                f"house/{self._house_id}/availability",
+                payload=json.dumps({"state": "offline", "reason": "shutdown"}),
+                qos=1,
+                retain=True,
+            )
+        except aiomqtt.MqttError:
+            _LOGGER.debug("Could not publish graceful offline availability")
+
     async def async_stop(self) -> None:
         """Stop the MQTT bridge and clean up all resources."""
         self._stopping = True
 
-        # Graceful availability: overwrite the retained LWT payload so clients
-        # see a deliberate shutdown instead of waiting on broker keepalive.
-        if self._client is not None:
-            try:
-                await self._client.publish(
-                    f"house/{self._house_id}/availability",
-                    payload=json.dumps({"state": "offline", "reason": "shutdown"}),
-                    qos=1,
-                    retain=True,
-                )
-            except aiomqtt.MqttError:
-                _LOGGER.debug("Could not publish graceful offline availability")
+        await self._async_say_leaving()
 
         # Unsubscribe from HA events
+        if self._unsub_stop_listener:
+            self._unsub_stop_listener()
+            self._unsub_stop_listener = None
+
         if self._unsub_state_listener:
             self._unsub_state_listener()
             self._unsub_state_listener = None
@@ -1216,6 +1254,10 @@ class TurziMqttBridge:
         }
         if reason is not None:
             payload["reason"] = reason
+        if state == "online" and self._bridge_version:
+            # Which bridge connected. The retained "online" alone cannot tell a bridge that was
+            # replaced from the one before it.
+            payload["bridge_version"] = self._bridge_version
         if self.config_revision is not None:
             payload["config_revision"] = self.config_revision
         try:

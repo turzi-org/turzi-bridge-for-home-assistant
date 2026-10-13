@@ -1,8 +1,10 @@
 """Publishing and cleanup apply the rows, and change the moment a row does."""
 
 import json
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigSubentry
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 
 from custom_components.turzi_bridge.exposure import PublishScope
@@ -137,3 +139,42 @@ async def test_a_domain_without_an_attribute_map_still_publishes_its_features(ha
 
     payload = json.loads(next(p for t, p, _ in bridge._client.publishes if t == f"house/{HOUSE}/state/lock/porton"))
     assert payload["attributes"] == {"supported_features": 1}
+
+
+async def test_it_says_which_version_it_is_when_it_announces_itself(hass: HomeAssistant) -> None:
+    """What replaces a bridge knows the new one connected by the version it says (turzi-apps TURZI_SUPERVISOR.md §6.2)."""
+    bridge = make_bridge(hass, bridge_entry(hass, door_and_safety()))
+    await bridge._async_read_version()
+    await bridge._publish_availability(bridge._client, "online")
+    await bridge._publish_availability(bridge._client, "offline", "connection_lost")
+
+    manifest = json.loads((Path(__file__).parents[1] / "custom_components/turzi_bridge/manifest.json").read_text())
+    said = [json.loads(p) for t, p, _ in bridge._client.publishes if t == f"house/{HOUSE}/availability"]
+    assert said[0]["state"] == "online" and said[0]["bridge_version"] == manifest["version"]
+    assert said[1]["state"] == "offline" and "bridge_version" not in said[1]
+    assert all(retain for t, _, retain in bridge._client.publishes if t == f"house/{HOUSE}/availability")
+
+
+async def test_it_says_it_is_leaving_when_home_assistant_stops(hass: HomeAssistant) -> None:
+    """Home Assistant stopping does not unload the bridge: without this, "online" stayed on the broker all through a restart."""
+    bridge = make_bridge(hass, bridge_entry(hass, door_and_safety()))
+    bridge._setup_stop_listener()
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+
+    assert (f"house/{HOUSE}/availability", json.dumps({"state": "offline", "reason": "shutdown"}), True) in bridge._client.publishes
+    assert bridge._unsub_stop_listener is None
+
+
+async def test_unloading_says_it_once_and_stops_listening_for_the_stop(hass: HomeAssistant) -> None:
+    bridge = make_bridge(hass, bridge_entry(hass, door_and_safety()))
+    bridge._setup_stop_listener()
+
+    await bridge.async_stop()
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+
+    goodbyes = [p for t, p, _ in bridge._client.publishes if t == f"house/{HOUSE}/availability"]
+    assert goodbyes == [json.dumps({"state": "offline", "reason": "shutdown"})]
+

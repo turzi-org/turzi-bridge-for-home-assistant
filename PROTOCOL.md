@@ -230,6 +230,7 @@ The ack reports *invocation*, not physical outcome. Observed physical outcome re
   "state": "online",
   "timestamp": 1705325400,
   "protocol_version": "1.1",
+  "bridge_version": "2026.10.7",
   "config_revision": 42
 }
 ```
@@ -243,7 +244,8 @@ The ack reports *invocation*, not physical outcome. Observed physical outcome re
 ```
 
 - The core MUST register an LWT on connect with payload `{"state": "offline", "reason": "connection_lost"}` (retained, QoS 1) so the broker announces death on its behalf.
-- The core MUST publish the `online` payload immediately after connecting, and SHOULD publish `{"state": "offline", "reason": "shutdown"}` before a graceful disconnect.
+- The core MUST publish the `online` payload immediately after connecting, and SHOULD publish `{"state": "offline", "reason": "shutdown"}` before a graceful disconnect. A graceful disconnect includes the host application stopping: a core that closes its connection cleanly and says nothing leaves `online` retained, because the broker sends the LWT only for a connection that is lost.
+- `bridge_version` *(optional, added 2026-10-13)* is the version of the software publishing as the core. Whoever replaces that software reads it to know that the new version is the one that connected; the retained `online` alone cannot tell it from the one before. Consumers must tolerate its absence.
 - `config_revision` reports the currently applied exposure configuration revision (see [Exposure Configuration](#exposure-configuration)). Cores that do not support remote configuration omit it. Because the topic is retained, this doubles as the configuration acknowledgment.
 - Clients MUST treat all entity state for the house as *unverified* (stale-but-displayable) while availability is `offline`, and SHOULD surface home connectivity in the UI.
 
