@@ -137,6 +137,13 @@ def build_catalog(hass: HomeAssistant, entry: ConfigEntry) -> list[dict[str, Any
         entities.append(
             {
                 "id": entity_id,
+                # Home Assistant's own id for the entity, which survives a rename
+                # of its entity_id: with it the platform tells a rename from one
+                # entity leaving and another arriving, and what hangs on the
+                # entity (a door's lock, an automation, its history) follows
+                # (turzi-apps BRIDGE_CLOUD_API.md §3.3). Left out for an entity
+                # with no registry entry, which cannot be renamed.
+                **({"registry_id": reg_entry.id} if reg_entry else {}),
                 "domain": entity_id.split(".", 1)[0],
                 "slug": entity_id.split(".", 1)[1],
                 "name": name,

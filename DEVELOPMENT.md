@@ -132,6 +132,8 @@ The v2 → v3 migration in `async_migrate_entry` turns the old keys into rows wi
 
 ---
 
+**A renamed entity stays the same entity.** Each catalog entry carries `registry_id`, Home Assistant's own id for the entity, which does not change when its `entity_id` is renamed (`turzi-apps` `BRIDGE_CLOUD_API.md` §3.3). The platform uses it to tell a rename from one entity leaving and another arriving, so what hangs on the entity follows it. An entity with no registry entry has none, and cannot be renamed. The catalog is registered again within seconds of any registry change, a rename included.
+
 ## Cloud Lifecycle
 
 ```

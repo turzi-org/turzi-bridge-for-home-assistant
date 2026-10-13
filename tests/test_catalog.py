@@ -64,3 +64,24 @@ async def test_no_rows_publishes_nothing(hass: HomeAssistant) -> None:
     hass.states.async_set("light.hall", "on", {})
 
     assert build_catalog(hass, bridge_entry(hass)) == []
+
+
+async def test_a_renamed_entity_keeps_its_registry_id(hass: HomeAssistant) -> None:
+    """A rename in Home Assistant changes the entity's id and nothing else: the
+    catalog says which entity it still is (BRIDGE_CLOUD_API.md §3.3)."""
+    registry = er.async_get(hass)
+    door = registry.async_get_or_create("lock", "test", "front-door", suggested_object_id="puerta")
+    hass.states.async_set(door.entity_id, "locked", {})
+    hass.states.async_set("lock.sin_registro", "locked", {})      # no registry entry: nothing to rename
+    entry = bridge_entry(hass, domain_filter("lock"))
+
+    before = {e["id"]: e for e in build_catalog(hass, entry)}
+    assert before["lock.puerta"]["registry_id"] == door.id
+    assert "registry_id" not in before["lock.sin_registro"]
+
+    registry.async_update_entity(door.entity_id, new_entity_id="lock.puerta_principal")
+    hass.states.async_remove("lock.puerta")
+    hass.states.async_set("lock.puerta_principal", "locked", {})
+    after = {e["id"]: e for e in build_catalog(hass, entry)}
+    assert "lock.puerta" not in after
+    assert after["lock.puerta_principal"]["registry_id"] == door.id
