@@ -230,7 +230,7 @@ The ack reports *invocation*, not physical outcome. Observed physical outcome re
   "state": "online",
   "timestamp": 1705325400,
   "protocol_version": "1.1",
-  "bridge_version": "2026.10.7",
+  "bridge_version": "2026.10.8",
   "config_revision": 42
 }
 ```

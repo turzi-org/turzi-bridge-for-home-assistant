@@ -85,3 +85,38 @@ async def test_a_renamed_entity_keeps_its_registry_id(hass: HomeAssistant) -> No
     after = {e["id"]: e for e in build_catalog(hass, entry)}
     assert "lock.puerta" not in after
     assert after["lock.puerta_principal"]["registry_id"] == door.id
+
+
+async def test_a_device_carries_its_connections_for_the_platform_to_match(hass: HomeAssistant) -> None:
+    # BRIDGE_CLOUD_API.md §3 `device.connections` (brief 22 Q1): a MAC is how
+    # the platform joins this device with a box it provisions.
+    from homeassistant.helpers import device_registry as dr
+
+    entry = bridge_entry(hass, domain_filter("light"))
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(dr.CONNECTION_NETWORK_MAC, "0C:11:05:34:ED:7C"), (dr.CONNECTION_ZIGBEE, "00:12:4b:00:aa:bb:cc:dd")},
+        manufacturer="Akuvox", model="S535", name="Portero",
+    )
+    er.async_get(hass).async_get_or_create("light", "demo", "portero-luz", suggested_object_id="portero", device_id=device.id)
+    hass.states.async_set("light.portero", "on", {})
+
+    light = next(e for e in build_catalog(hass, entry) if e["id"] == "light.portero")
+
+    assert light["device"]["connections"] == [
+        {"type": "mac", "value": "0c:11:05:34:ed:7c"},
+        {"type": "zigbee", "value": "00:12:4b:00:aa:bb:cc:dd"},
+    ]
+
+
+async def test_a_device_with_no_connections_sends_an_empty_list(hass: HomeAssistant) -> None:
+    from homeassistant.helpers import device_registry as dr
+
+    entry = bridge_entry(hass, domain_filter("light"))
+    device = dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id, identifiers={("demo", "x")}, name="Sin red")
+    er.async_get(hass).async_get_or_create("light", "demo", "sin-red", suggested_object_id="sin_red", device_id=device.id)
+    hass.states.async_set("light.sin_red", "on", {})
+
+    light = next(e for e in build_catalog(hass, entry) if e["id"] == "light.sin_red")
+
+    assert light["device"]["connections"] == []

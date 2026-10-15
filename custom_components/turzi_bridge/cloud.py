@@ -93,6 +93,13 @@ def _device_of(devices: dr.DeviceRegistry, device_id: str | None) -> dict[str, A
         "manufacturer": device.manufacturer,
         "model": device.model,
         "sw_version": device.sw_version,
+        # BRIDGE_CLOUD_API.md §3 `device.connections`: how the platform joins
+        # this device with a box it provisions (by MAC), brief 22 Q1. As HA
+        # holds them; sorted, so the catalog's hash does not move with a set's order.
+        "connections": [
+            {"type": str(kind), "value": str(value)}
+            for kind, value in sorted(device.connections or ())
+        ],
     }
 
 
