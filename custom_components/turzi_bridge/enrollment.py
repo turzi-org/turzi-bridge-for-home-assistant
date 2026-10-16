@@ -15,7 +15,18 @@ from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
-from .const import DOMAIN, PROTOCOL_VERSION
+from .const import (
+    CONF_API_ADDRESS,
+    CONF_API_BASE_URL,
+    CONF_BROKER,
+    CONF_PASSWORD,
+    CONF_PORT,
+    CONF_TLS_SERVER_NAME,
+    CONF_USE_TLS,
+    CONF_USERNAME,
+    DOMAIN,
+    PROTOCOL_VERSION,
+)
 from .tls import async_post, async_request
 
 _LOGGER = logging.getLogger(__name__)
@@ -216,3 +227,17 @@ async def async_fetch_connection(
     except (KeyError, TypeError, ValueError) as err:
         _LOGGER.error("Malformed connection answer: %s", err)
         raise EnrollmentError("cannot_connect") from err
+
+
+def connection_data(found: ConnectionResult, base_url: str, address: str | None) -> dict:
+    """The entry's fields for a connection the API gave: the Refresh step's and a refused login's."""
+    return {
+        CONF_BROKER: found.mqtt_host,
+        CONF_PORT: found.mqtt_port,
+        CONF_USERNAME: found.mqtt_username,
+        CONF_PASSWORD: found.mqtt_password,
+        CONF_USE_TLS: found.mqtt_tls,
+        CONF_TLS_SERVER_NAME: found.mqtt_tls_server_name,
+        CONF_API_BASE_URL: found.api_base_url or base_url,
+        CONF_API_ADDRESS: found.api_address or address,
+    }

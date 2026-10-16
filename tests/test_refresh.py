@@ -77,3 +77,100 @@ async def test_a_stack_still_preparing_its_certificate_says_to_wait(hass: HomeAs
     result = await _to_refresh(hass, entry)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_API_BASE_URL: BY_NAME, CONF_API_ADDRESS: ADDRESS})
     assert result["errors"] == {"base": "building_tls_pending"} and dict(entry.data) == BEFORE
+
+
+# --- A refused login, found again with nobody at the keyboard -----------------------------------------------------
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import aiomqtt
+from aiomqtt.exceptions import MqttConnectError
+from paho.mqtt.packettypes import PacketTypes
+from paho.mqtt.reasoncodes import ReasonCode
+
+from custom_components.turzi_bridge.const import DOMAIN
+from custom_components.turzi_bridge.mqtt_bridge import TurziMqttBridge, _login_refused
+
+# Still in clear, as BEFORE: only the password moved (a connector enrolled again).
+SAME_PLACE_NEW_PASSWORD = {
+    "mqtt": {"host": ADDRESS, "port": 1883, "tls": False, "username": "bridge-house-1", "password": "new"},
+}
+
+
+def test_only_a_refused_login_counts_as_one() -> None:
+    assert _login_refused(MqttConnectError(ReasonCode(PacketTypes.CONNACK, identifier=135)))
+    assert _login_refused(MqttConnectError(ReasonCode(PacketTypes.CONNACK, identifier=134)))
+    assert _login_refused(MqttConnectError(5)) and _login_refused(MqttConnectError(4))
+    # A broker that is down or busy is not a login problem: nothing is asked.
+    assert not _login_refused(MqttConnectError(ReasonCode(PacketTypes.CONNACK, identifier=136)))
+    assert not _login_refused(aiomqtt.MqttCodeError(5, "Could not subscribe"))
+    assert not _login_refused(aiomqtt.MqttError("[Errno 61] Connection refused"))
+
+
+async def _set_up(hass: HomeAssistant, data: dict):
+    entry = bridge_entry(hass, domain_filter("lock"), data=data)
+    with patch.object(TurziMqttBridge, "async_start", AsyncMock()), patch("custom_components.turzi_bridge.TurziCloudSync.start"):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    return entry, hass.data[DOMAIN][entry.entry_id]["bridge"]
+
+
+async def test_a_refused_login_asks_turzi_and_reconnects_with_the_new_one(hass: HomeAssistant, aioclient_mock) -> None:
+    entry, bridge = await _set_up(hass, dict(BEFORE))
+    aioclient_mock.get(f"{BEFORE[CONF_API_BASE_URL]}/bridge/connection", json=SAME_PLACE_NEW_PASSWORD)
+    with patch.object(hass.config_entries, "async_schedule_reload", MagicMock()) as reload:
+        await bridge.login_refused_callback()
+    (_method, _url, _data, headers), = aioclient_mock.mock_calls
+    assert headers["Authorization"] == "Bearer token-1"
+    assert entry.data["password"] == "new" and entry.data[CONF_BROKER] == ADDRESS
+    assert (entry.data[CONF_HOUSE_ID], entry.data[CONF_BRIDGE_TOKEN]) == ("house-1", "token-1")
+    reload.assert_called_once_with(entry.entry_id)
+
+
+async def test_the_same_login_again_changes_nothing(hass: HomeAssistant, aioclient_mock) -> None:
+    entry, bridge = await _set_up(hass, dict(BEFORE))
+    aioclient_mock.get(f"{BEFORE[CONF_API_BASE_URL]}/bridge/connection", json={"mqtt": {**SAME_PLACE_NEW_PASSWORD["mqtt"], "password": "old"}})
+    with patch.object(hass.config_entries, "async_schedule_reload", MagicMock()) as reload:
+        await bridge.login_refused_callback()
+    assert entry.data["password"] == "old"
+    reload.assert_not_called()
+
+
+async def test_a_bridge_turzi_no_longer_knows_is_shown_as_unlinked(hass: HomeAssistant, aioclient_mock) -> None:
+    entry, bridge = await _set_up(hass, dict(BEFORE))
+    aioclient_mock.get(f"{BEFORE[CONF_API_BASE_URL]}/bridge/connection", status=401, json={"error": "token_revoked"})
+    with patch.object(bridge, "async_stop", AsyncMock()):
+        await bridge.login_refused_callback()
+        await hass.async_block_till_done()
+    assert dict(entry.data) == BEFORE
+    assert any(flow["context"].get("source") == "reauth" for flow in hass.config_entries.flow.async_progress_by_handler(DOMAIN))
+
+
+async def test_the_loop_asks_once_however_often_it_is_refused(hass: HomeAssistant) -> None:
+    entry = bridge_entry(hass, domain_filter("lock"), data=dict(BEFORE))
+    bridge = TurziMqttBridge.from_config_entry(hass, entry)
+    asked = AsyncMock()
+    bridge.login_refused_callback = asked
+    refusals = 0
+
+    class Refused:
+        def __init__(self, **_kwargs) -> None: ...
+        async def __aenter__(self):
+            raise MqttConnectError(ReasonCode(PacketTypes.CONNACK, identifier=135))
+        async def __aexit__(self, *_exc) -> None: ...
+
+    async def no_wait(delay) -> None:
+        # Only the reconnect waits: Home Assistant's own task handling sleeps for zero.
+        if not delay:
+            return
+        nonlocal refusals
+        refusals += 1
+        if refusals == 4:
+            bridge._stopping = True
+
+    with patch("custom_components.turzi_bridge.mqtt_bridge.aiomqtt.Client", Refused), \
+         patch("custom_components.turzi_bridge.mqtt_bridge.asyncio.sleep", no_wait):
+        await bridge._connection_loop()
+        await hass.async_block_till_done()
+    assert refusals == 4 and asked.await_count == 1

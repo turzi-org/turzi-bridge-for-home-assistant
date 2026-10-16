@@ -18,12 +18,15 @@ from homeassistant.helpers.start import async_at_started
 
 from .cloud import TurziCloudSync
 from .const import (
+    CONF_API_ADDRESS,
+    CONF_API_BASE_URL,
     CONF_AUTO_ADD_NEW,
     CONF_BRIDGE_TOKEN,
     CONF_CONFIG_REVISION,
     CONF_FILTER_SNAPSHOT,
     CONF_MODE,
     DEFAULT_AUTO_ADD_NEW,
+    DEFAULT_CLOUD_API_BASE_URL,
     DOMAIN,
     DOOR_AND_SAFETY_CLASSES,
     FILTER_DEVICE_CLASSES,
@@ -39,6 +42,7 @@ from .const import (
     SUBENTRY_ENTITY_FILTER,
     SUBENTRY_EXCLUSION,
 )
+from .enrollment import EnrollmentError, async_fetch_connection, connection_data
 from .mqtt_bridge import TurziMqttBridge
 from .scope import (
     blocked_of,
@@ -101,6 +105,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
             hass.async_create_task(bridge.async_stop())
 
         bridge.unlink_callback = _on_unlinked
+
+        async def _on_login_refused() -> None:
+            """The building's broker refused this bridge's login: ask for the current one.
+
+            The platform derives every login in a building from its connector, so
+            one that changes there (a connector enrolled again) is found here, as
+            the Refresh step would find it, with nobody at the keyboard.
+            """
+            base_url = entry.data.get(CONF_API_BASE_URL) or DEFAULT_CLOUD_API_BASE_URL
+            address = entry.data.get(CONF_API_ADDRESS)
+            try:
+                found = await async_fetch_connection(hass, base_url, entry.data.get(CONF_BRIDGE_TOKEN) or "", address)
+            except EnrollmentError as err:
+                if err.code == "token_revoked":
+                    await _on_unlinked()
+                else:
+                    _LOGGER.warning("The broker refused this bridge's login and Turzi could not be asked for it (%s)", err.code)
+                return
+            data = connection_data(found, base_url, address)
+            if all(entry.data.get(key) == value for key, value in data.items()):
+                _LOGGER.warning("The broker refused this bridge's login, and Turzi gives the same one: the building's broker has not caught up yet")
+                return
+            _LOGGER.info("Turzi gave this bridge a new broker login; reconnecting with it")
+            hass.config_entries.async_update_entry(entry, data={**entry.data, **data})
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+
+        bridge.login_refused_callback = _on_login_refused
 
     async def _start_bridge(_hass: HomeAssistant) -> None:
         """Start the bridge once HA has finished starting."""

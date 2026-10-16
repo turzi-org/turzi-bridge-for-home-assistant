@@ -51,7 +51,7 @@ from .const import (
     SUBENTRY_ENTITY_FILTER,
     SUBENTRY_EXCLUSION,
 )
-from .enrollment import EnrollmentError, EnrollResult, async_enroll, async_fetch_connection
+from .enrollment import EnrollmentError, EnrollResult, async_enroll, async_fetch_connection, connection_data
 from .scope import blocked_of, count_published, domain_filter_title, filters_of, take_snapshot
 from .subentry_flows import DomainFilterFlow, EntityFilterFlow, ExclusionFlow
 
@@ -497,16 +497,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_update_reload_and_abort(
                     entry,
-                    data_updates={
-                        CONF_BROKER: found.mqtt_host,
-                        CONF_PORT: found.mqtt_port,
-                        CONF_USERNAME: found.mqtt_username,
-                        CONF_PASSWORD: found.mqtt_password,
-                        CONF_USE_TLS: found.mqtt_tls,
-                        CONF_TLS_SERVER_NAME: found.mqtt_tls_server_name,
-                        CONF_API_BASE_URL: found.api_base_url or base_url,
-                        CONF_API_ADDRESS: found.api_address or address,
-                    },
+                    data_updates=connection_data(found, base_url, address),
                     reason="refresh_successful",
                 )
 
