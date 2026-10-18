@@ -424,6 +424,7 @@ No attributes. State values convey all information: `locked`, `unlocked`, `locki
 |-----------|------|-------------|
 | `unit_of_measurement` | string | Unit: `°C`, `°F`, `%`, `W`, `kWh`, `lx`, etc. |
 | `device_class` | string | Sensor type: `temperature`, `humidity`, `power`, `energy`, `illuminance`, `battery`, `voltage`, `current`, `pressure`, etc. |
+| `state_class` | string | Home Assistant's statistics class: `measurement` (a reading, averaged), `total` or `total_increasing` (a meter, summed). Absent when HA keeps no statistics for the sensor. Since 2026.10.10 |
 
 ### `binary_sensor`
 

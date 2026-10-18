@@ -269,6 +269,10 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
     "sensor": [
         "unit_of_measurement",
         "device_class",
+        # Whether HA keeps statistics for it, and which: `measurement`,
+        # `total` or `total_increasing`. The platform's recorder sums a meter
+        # and averages a measurement only when it is told which is which.
+        "state_class",
     ],
     "binary_sensor": [
         "device_class",

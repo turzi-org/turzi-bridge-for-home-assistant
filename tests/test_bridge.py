@@ -141,6 +141,22 @@ async def test_a_domain_without_an_attribute_map_still_publishes_its_features(ha
     assert payload["attributes"] == {"supported_features": 1}
 
 
+async def test_a_sensor_says_its_state_class(hass: HomeAssistant) -> None:
+    """A meter is summed and a reading averaged only if the platform is told which is which (turzi-apps D59)."""
+    bridge = make_bridge(hass, bridge_entry(hass, domain_filter("sensor")))
+    bridge._setup_state_listener()
+
+    hass.states.async_set("sensor.agua", "1234.5", {"unit_of_measurement": "m³", "device_class": "water", "state_class": "total_increasing"})
+    hass.states.async_set("sensor.temp", "21.5", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await hass.async_block_till_done()
+
+    def attributes(object_id: str) -> dict:
+        return json.loads(next(p for t, p, _ in bridge._client.publishes if t == f"house/{HOUSE}/state/sensor/{object_id}"))["attributes"]
+
+    assert attributes("agua") == {"unit_of_measurement": "m³", "device_class": "water", "state_class": "total_increasing"}
+    assert attributes("temp") == {"unit_of_measurement": "°C", "device_class": "temperature"}
+
+
 async def test_it_says_which_version_it_is_when_it_announces_itself(hass: HomeAssistant) -> None:
     """What replaces a bridge knows the new one connected by the version it says (turzi-apps TURZI_SUPERVISOR.md §6.2)."""
     bridge = make_bridge(hass, bridge_entry(hass, door_and_safety()))
