@@ -426,6 +426,19 @@ No attributes. State values convey all information: `locked`, `unlocked`, `locki
 | `device_class` | string | Sensor type: `temperature`, `humidity`, `power`, `energy`, `illuminance`, `battery`, `voltage`, `current`, `pressure`, etc. |
 | `state_class` | string | Home Assistant's statistics class: `measurement` (a reading, averaged), `total` or `total_increasing` (a meter, summed). Absent when HA keeps no statistics for the sensor. Since 2026.10.10 |
 
+### `event`
+
+Published only as a Turzi event (since 2026.10.11, turzi-apps D56): an intercom's access and doorbell events are translated, and nothing else of the entity leaves Home Assistant: never who was at the door (names, user ids, card or employee numbers). An event entity whose latest event has no Turzi meaning is not published.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `event_type` | string | `ring`, `access_granted`, `access_denied` or `door_forced` |
+| `event_types` | string[] | The four above |
+| `method` | string | For access events: `pin`, `tag`, `face`, `qr` or `fingerprint` |
+| `device_class` | string | `doorbell` for a ring |
+
+The state is Home Assistant's: the time of the latest event.
+
 ### `binary_sensor`
 
 | Attribute | Type | Description |

@@ -43,6 +43,7 @@ from .tls import async_stack_context
 from .exposure import PublishScope
 from .scope import blocked_of, scope_of
 
+from .event_mapping import turzi_event
 from .const import (
     CONF_TLS_SERVER_NAME,
     ALARM_MODE_MAP,
@@ -898,6 +899,13 @@ class TurziMqttBridge:
 
         # Extract domain-specific attributes
         attributes = self._extract_attributes(domain, state)
+
+        # An event entity only as a Turzi event, and with nothing else: never
+        # the vendor's words or who was at the door (event_mapping, D56).
+        if domain == "event":
+            attributes = turzi_event(dict(state.attributes))
+            if attributes is None:
+                return
 
         # Climate fallback: target_temperature can be absent from new_state during
         # HVAC mode transitions (e.g. heat → cool). Mirror the original Node-RED logic:
