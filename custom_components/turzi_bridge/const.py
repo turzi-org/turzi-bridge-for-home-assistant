@@ -252,6 +252,11 @@ DOMAIN_ATTRIBUTES: dict[str, list[str]] = {
         "preset_mode",
         "direction",
         "oscillating",
+        # The speeds a fan has (100 / steps) and its presets: what the app's
+        # numbered-speed tile and the fan sheet's presets draw from (app
+        # APP_WORK §19).
+        "percentage_step",
+        "preset_modes",
     ],
     # lock: no attributes (state is sufficient)
     "media_player": [

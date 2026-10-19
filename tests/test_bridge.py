@@ -141,6 +141,17 @@ async def test_a_domain_without_an_attribute_map_still_publishes_its_features(ha
     assert payload["attributes"] == {"supported_features": 1}
 
 
+async def test_a_fan_says_its_speeds_and_presets(hass: HomeAssistant) -> None:
+    """The app's numbered-speed tile and presets need them (app APP_WORK §19)."""
+    bridge = make_bridge(hass, bridge_entry(hass, domain_filter("fan")))
+    bridge._setup_state_listener()
+    hass.states.async_set("fan.techo", "on", {"percentage": 50, "percentage_step": 33.333333333333336, "preset_modes": ["auto", "sleep"], "preset_mode": None})
+    await hass.async_block_till_done()
+    payload = json.loads(next(p for t, p, _ in bridge._client.publishes if t == f"house/{HOUSE}/state/fan/techo"))
+    assert payload["attributes"]["percentage_step"] == 33.333333333333336
+    assert payload["attributes"]["preset_modes"] == ["auto", "sleep"]
+
+
 async def test_a_sensor_says_its_state_class(hass: HomeAssistant) -> None:
     """A meter is summed and a reading averaged only if the platform is told which is which (turzi-apps D59)."""
     bridge = make_bridge(hass, bridge_entry(hass, domain_filter("sensor")))

@@ -398,6 +398,8 @@ On receipt the core SHOULD stop its connection attempts and surface a re-enrollm
 | `preset_mode` | string | Current preset mode |
 | `direction` | string | Rotation direction: `forward` or `reverse` |
 | `oscillating` | bool | Whether oscillation is active |
+| `percentage_step` | number | The step between speeds (100 / the fan's number of speeds). Since 2026.10.11 |
+| `preset_modes` | string[] | The presets the fan offers. Since 2026.10.11 |
 
 ### `lock`
 
