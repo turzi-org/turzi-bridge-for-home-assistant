@@ -24,7 +24,6 @@
       },
       "manual": {
         "title": "MQTT Broker Configuration",
-        "description": "Configure the connection to your own MQTT broker (self-hosted / local mode).",
         "data": {
           "broker": "Broker hostname",
           "port": "Port",
@@ -44,7 +43,6 @@
       },
       "reconfigure": {
         "title": "Reconfigure MQTT Broker",
-        "description": "Update the MQTT broker connection settings.",
         "data": {
           "broker": "Broker hostname",
           "port": "Port",
@@ -90,7 +88,7 @@
       },
       "settings": {
         "title": "Options",
-        "description": "The bridge starts with {filters} domain filters: the devices a building controls, plus door and safety binary sensors. They publish {published} entities. Filters and exclusions are rows on the bridge's page afterwards, each with its own edit and delete.",
+        "description": "The bridge starts with {filters} domain filters: the devices a building controls, plus door and safety binary sensors. They publish {published} entities. Filters and exclusions are rows on the bridge's page afterwards.",
         "data": {
           "auto_add_new": "Automatically expose new entities"
         },
@@ -100,7 +98,7 @@
       },
       "reconfigure_how": {
         "title": "Reconnect the bridge",
-        "description": "Choose how. Finding the connection again spends no key and disconnects nothing: it is for a building that changed how its Turzi machine is reached.",
+        "description": "Finding the connection again spends no key and disconnects nothing: it is for a building that changed how its Turzi machine is reached.",
         "menu_options": {
           "refresh": "Find the connection again (no key)",
           "reconfigure_cloud": "Enroll again with a new key"
@@ -190,7 +188,7 @@
         },
         "classes": {
           "title": "Classes: {domain}",
-          "description": "Tick the classes that are published. With none ticked, the whole domain is.",
+          "description": "With no class ticked, the whole domain is published.",
           "data": {
             "device_classes": "Classes"
           }
@@ -213,14 +211,14 @@
       "step": {
         "user": {
           "title": "Add entity filter",
-          "description": "Search for and add the entities that are published, whatever their domain.",
+          "description": "These entities are published, whatever their domain.",
           "data": {
             "entities": "Entities"
           }
         },
         "reconfigure": {
           "title": "Edit entity filter",
-          "description": "Search for and add the entities that are published, whatever their domain.",
+          "description": "These entities are published, whatever their domain.",
           "data": {
             "entities": "Entities"
           }

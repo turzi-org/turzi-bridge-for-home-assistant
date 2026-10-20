@@ -10,7 +10,7 @@
       },
       "cloud": {
         "title": "Conectar a Turzi Cloud",
-        "description": "Ingresá el código de instalación generado en el Turzi Community Manager. El bridge se aprovisiona automáticamente.",
+        "description": "Ingresa el código de instalación generado en el Turzi Community Manager. El bridge se aprovisiona automáticamente.",
         "data": {
           "enrollment_key": "Código de instalación",
           "api_base_url": "URL base de la API",
@@ -18,13 +18,12 @@
         },
         "data_description": {
           "enrollment_key": "Código de un solo uso (TRZ-XXXX-XXXX-XXXX) generado en el Turzi Community Manager.",
-          "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado.",
-          "api_address": "La completa Turzi Stack cuando configura el puente. Dejala vacía si lo hacés a mano."
+          "api_base_url": "Cámbiala solo si te conectas a un backend Turzi autoalojado.",
+          "api_address": "La completa Turzi Stack cuando configura el puente. Déjala vacía si lo haces a mano."
         }
       },
       "manual": {
         "title": "Configuración del broker MQTT",
-        "description": "Configurá la conexión a tu propio broker MQTT (modo autoalojado / local).",
         "data": {
           "broker": "Host del broker",
           "port": "Puerto",
@@ -44,7 +43,6 @@
       },
       "reconfigure": {
         "title": "Reconfigurar broker MQTT",
-        "description": "Actualizá los datos de conexión al broker MQTT.",
         "data": {
           "broker": "Host del broker",
           "port": "Puerto",
@@ -64,33 +62,33 @@
       },
       "reauth_confirm": {
         "title": "Reconectar a Turzi Cloud",
-        "description": "La plataforma desvinculó este bridge. Ingresá un nuevo código de instalación para reconectarlo — los dominios incluidos, las entidades expuestas y la lista de privacidad se conservan.",
+        "description": "La plataforma desvinculó este bridge. Ingresa un nuevo código de instalación para reconectarlo — los dominios incluidos, las entidades expuestas y la lista de privacidad se conservan.",
         "data": {
           "enrollment_key": "Código de instalación",
           "api_base_url": "URL base de la API",
           "api_address": "Dirección de Turzi Stack"
         },
         "data_description": {
-          "api_address": "La completa Turzi Stack cuando configura el puente. Dejala vacía si lo hacés a mano."
+          "api_address": "La completa Turzi Stack cuando configura el puente. Déjala vacía si lo haces a mano."
         }
       },
       "reconfigure_cloud": {
         "title": "Reaprovisionar la conexión con Turzi Cloud",
-        "description": "Este bridge lo aprovisiona Turzi Cloud, así que sus datos de broker no se editan a mano. Ingresá un nuevo código de instalación para reaprovisionarlo — los dominios incluidos, las entidades expuestas y la lista de privacidad se conservan.",
+        "description": "Este bridge lo aprovisiona Turzi Cloud, así que sus datos de broker no se editan a mano. Ingresa un nuevo código de instalación para reaprovisionarlo — los dominios incluidos, las entidades expuestas y la lista de privacidad se conservan.",
         "data": {
           "enrollment_key": "Código de instalación",
           "api_base_url": "URL base de la API",
           "api_address": "Dirección de Turzi Stack"
         },
         "data_description": {
-          "enrollment_key": "Código de un solo uso (TRZ-XXXX-XXXX-XXXX) generado en el Turzi Community Manager. Al enviarlo se revoca la conexión actual de este bridge, así que usá solo un código que quieras gastar.",
-          "api_base_url": "Cambiala solo si te conectás a un backend Turzi autoalojado.",
-          "api_address": "La completa Turzi Stack cuando configura el puente. Dejala vacía si lo hacés a mano."
+          "enrollment_key": "Código de un solo uso (TRZ-XXXX-XXXX-XXXX) generado en el Turzi Community Manager. Al enviarlo se revoca la conexión actual de este bridge, así que usa solo un código que quieras gastar.",
+          "api_base_url": "Cámbiala solo si te conectas a un backend Turzi autoalojado.",
+          "api_address": "La completa Turzi Stack cuando configura el puente. Déjala vacía si lo haces a mano."
         }
       },
       "settings": {
         "title": "Opciones",
-        "description": "El puente arranca con {filters} filtros de dominio: los dispositivos que controla un edificio y los sensores de puerta y de seguridad. Publican {published} entidades. Después, los filtros y las exclusiones son filas en la página del puente, cada una con su editar y su eliminar.",
+        "description": "El puente arranca con {filters} filtros de dominio: los dispositivos que controla un edificio y los sensores de puerta y de seguridad. Publican {published} entidades. Después, los filtros y las exclusiones son filas en la página del puente.",
         "data": {
           "auto_add_new": "Exponer automáticamente entidades nuevas"
         },
@@ -100,7 +98,7 @@
       },
       "reconfigure_how": {
         "title": "Reconectar el puente",
-        "description": "Elegí cómo. Buscar la conexión de nuevo no gasta ninguna clave y no desconecta nada: sirve cuando el edificio cambió la forma de llegar a su equipo de Turzi.",
+        "description": "Buscar la conexión de nuevo no gasta ninguna clave y no desconecta nada: sirve cuando el edificio cambió la forma de llegar a su equipo de Turzi.",
         "menu_options": {
           "refresh": "Buscar la conexión de nuevo (sin clave)",
           "reconfigure_cloud": "Enrolar de nuevo con una clave nueva"
@@ -114,29 +112,29 @@
           "api_address": "Dirección de Turzi Stack"
         },
         "data_description": {
-          "api_base_url": "Solo cambiala si te lo indican. Una Turzi Stack la completa sola.",
-          "api_address": "La completa Turzi Stack. Dejala vacía si lo hacés a mano."
+          "api_base_url": "Solo cámbiala si te lo indican. Una Turzi Stack la completa sola.",
+          "api_address": "La completa Turzi Stack. Déjala vacía si lo haces a mano."
         }
       }
     },
     "error": {
-      "cannot_connect": "No se pudo conectar. Revisá la configuración y la red.",
+      "cannot_connect": "No se pudo conectar. Revisa la configuración y la red.",
       "invalid_host": "Host del broker inválido.",
-      "token_invalid": "Este código de instalación es desconocido, expiró o ya fue usado. Generá uno nuevo en el Turzi Community Manager.",
-      "rate_limited": "Demasiados intentos. Esperá unos minutos y volvé a intentar.",
-      "home_not_ready": "Esta comunidad todavía no está lista para la instalación — pedile al administrador que configure su conexión de smart home.",
+      "token_invalid": "Este código de instalación es desconocido, expiró o ya fue usado. Genera uno nuevo en el Turzi Community Manager.",
+      "rate_limited": "Demasiados intentos. Espera unos minutos y vuelve a intentar.",
+      "home_not_ready": "Esta comunidad todavía no está lista para la instalación — pídele al administrador que configure su conexión de smart home.",
       "unknown": "Ocurrió un error inesperado.",
-      "broker_not_configured": "El broker MQTT de la comunidad no tiene cargada su credencial de dynsec, así que no se puede acuñar la credencial de esta casa. Cargala para ese broker en el panel de administración (Brokers MQTT) y probá de nuevo.",
-      "community_has_no_smart_home_connection": "Esta comunidad todavía no tiene un broker MQTT asignado. Asignale uno desde el panel de administración y probá de nuevo.",
-      "invalid_request": "El servidor rechazó el pedido. Fijate que el código de instalación esté pegado entero.",
-      "api_url_invalid": "Ninguna API de Turzi respondió en esa dirección. Revisá la URL base de la API — tiene que incluir la ruta /api/v2.",
-      "building_tls_pending": "El equipo de Turzi en el edificio todavía está preparando su conexión cifrada. Esperá uno o dos minutos e intentá de nuevo con una clave nueva.",
-      "building_broker_unknown": "El edificio todavía no está conectado a Turzi. Revisá el equipo de Turzi del edificio e intentá de nuevo.",
-      "token_revoked": "Turzi ya no reconoce a este puente como el de la comunidad. Enrolalo de nuevo con una clave nueva."
+      "broker_not_configured": "El broker MQTT de la comunidad no tiene cargada su credencial de dynsec, así que no se puede acuñar la credencial de esta casa. Cárgala para ese broker en el panel de administración (Brokers MQTT) y prueba de nuevo.",
+      "community_has_no_smart_home_connection": "Esta comunidad todavía no tiene un broker MQTT asignado. Asígnale uno desde el panel de administración y prueba de nuevo.",
+      "invalid_request": "El servidor rechazó el pedido. Revisa que el código de instalación esté pegado entero.",
+      "api_url_invalid": "Ninguna API de Turzi respondió en esa dirección. Revisa la URL base de la API — tiene que incluir la ruta /api/v2.",
+      "building_tls_pending": "El equipo de Turzi en el edificio todavía está preparando su conexión cifrada. Espera uno o dos minutos e intenta de nuevo con una clave nueva.",
+      "building_broker_unknown": "El edificio todavía no está conectado a Turzi. Revisa el equipo de Turzi del edificio e intenta de nuevo.",
+      "token_revoked": "Turzi ya no reconoce a este puente como el de la comunidad. Enrólalo de nuevo con una clave nueva."
     },
     "abort": {
       "already_configured": "Este ID de casa ya está configurado.",
-      "house_already_configured": "Ese código de instalación pertenece a una casa que ya tiene otra entrada de turzi Bridge, así que esta entrada quedó intacta. El código ya se consumió y el enrolamiento revocó la conexión de esa otra entrada — pedí uno nuevo y usalo ahí.",
+      "house_already_configured": "Ese código de instalación pertenece a una casa que ya tiene otra entrada de turzi Bridge, así que esta entrada quedó intacta. El código ya se consumió y el enrolamiento revocó la conexión de esa otra entrada — pide uno nuevo y úsalo ahí.",
       "reconfigure_successful": "Configuración del broker actualizada.",
       "reauth_successful": "Reconectado correctamente.",
       "refresh_successful": "Conexión encontrada. El puente se está reconectando."
@@ -145,11 +143,11 @@
   "issues": {
     "token_revoked": {
       "title": "Conexión con Turzi Cloud revocada",
-      "description": "Este bridge fue desvinculado de Turzi Cloud. Pedile al administrador un nuevo código de instalación y reconectá la integración."
+      "description": "Este bridge fue desvinculado de Turzi Cloud. Pídele al administrador un nuevo código de instalación y reconecta la integración."
     },
     "unlinked": {
       "title": "Bridge desvinculado de Turzi",
-      "description": "La plataforma Turzi desvinculó este bridge. Reconectalo con un nuevo código de instalación (Ajustes → Dispositivos y servicios → turzi Bridge → Reconfigurar), o eliminá la integración."
+      "description": "La plataforma Turzi desvinculó este bridge. Reconéctalo con un nuevo código de instalación (Ajustes → Dispositivos y servicios → turzi Bridge → Reconfigurar), o elimina la integración."
     }
   },
   "options": {
@@ -161,7 +159,7 @@
           "auto_add_new": "Exponer automáticamente entidades nuevas"
         },
         "data_description": {
-          "auto_add_new": "Encendido: una entidad nueva que coincide con un filtro de dominio se publica sola. Apagado: los filtros de dominio cubren solo las entidades que existen al guardar acá; una nueva espera hasta que vuelvas a guardar."
+          "auto_add_new": "Encendido: una entidad nueva que coincide con un filtro de dominio se publica sola. Apagado: los filtros de dominio cubren solo las entidades que existen al guardar aquí; una nueva espera hasta que vuelvas a guardar."
         }
       }
     }
@@ -190,15 +188,15 @@
         },
         "classes": {
           "title": "Clases: {domain}",
-          "description": "Marcá las clases que se publican. Sin ninguna marcada, se publica todo el dominio.",
+          "description": "Sin ninguna clase marcada, se publica todo el dominio.",
           "data": {
             "device_classes": "Clases"
           }
         }
       },
       "error": {
-        "domain_filter_exists": "Este dominio ya tiene un filtro. Editá esa fila.",
-        "domain_required": "Elegí un dominio."
+        "domain_filter_exists": "Este dominio ya tiene un filtro. Edita esa fila.",
+        "domain_required": "Elige un dominio."
       },
       "abort": {
         "reconfigure_successful": "Filtro guardado."
@@ -213,21 +211,21 @@
       "step": {
         "user": {
           "title": "Agregar filtro de entidades",
-          "description": "Buscá y sumá las entidades que se publican, sean del dominio que sean.",
+          "description": "Se publican estas entidades, sean del dominio que sean.",
           "data": {
             "entities": "Entidades"
           }
         },
         "reconfigure": {
           "title": "Editar filtro de entidades",
-          "description": "Buscá y sumá las entidades que se publican, sean del dominio que sean.",
+          "description": "Se publican estas entidades, sean del dominio que sean.",
           "data": {
             "entities": "Entidades"
           }
         }
       },
       "error": {
-        "no_entities": "Elegí al menos una entidad."
+        "no_entities": "Elige al menos una entidad."
       },
       "abort": {
         "reconfigure_successful": "Filtro guardado."
@@ -242,21 +240,21 @@
       "step": {
         "user": {
           "title": "Agregar exclusión",
-          "description": "Estas entidades no se publican nunca, aunque un filtro las incluya. Vale en cualquier modo y se conserva si volvés a instalar el puente.",
+          "description": "Estas entidades no se publican nunca, aunque un filtro las incluya. Vale en cualquier modo y se conserva si vuelves a instalar el puente.",
           "data": {
             "entities": "Entidades"
           }
         },
         "reconfigure": {
           "title": "Editar exclusión",
-          "description": "Estas entidades no se publican nunca, aunque un filtro las incluya. Vale en cualquier modo y se conserva si volvés a instalar el puente.",
+          "description": "Estas entidades no se publican nunca, aunque un filtro las incluya. Vale en cualquier modo y se conserva si vuelves a instalar el puente.",
           "data": {
             "entities": "Entidades"
           }
         }
       },
       "error": {
-        "no_entities": "Elegí al menos una entidad."
+        "no_entities": "Elige al menos una entidad."
       },
       "abort": {
         "reconfigure_successful": "Exclusión guardada."
