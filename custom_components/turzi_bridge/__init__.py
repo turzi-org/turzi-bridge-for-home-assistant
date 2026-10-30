@@ -6,6 +6,8 @@ import logging
 
 from types import MappingProxyType
 
+from yarl import URL
+
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -53,6 +55,7 @@ from .scope import (
     scope_of,
     take_snapshot,
 )
+from .tls import async_stack_moved_to_tls
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,32 +109,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
 
         bridge.unlink_callback = _on_unlinked
 
-        async def _on_login_refused() -> None:
-            """The building's broker refused this bridge's login: ask for the current one.
+        async def _ask_for_connection() -> None:
+            """The building's broker refused this bridge, or nobody answered there: ask for the current connection.
 
             The platform derives every login in a building from its connector, so
             one that changes there (a connector enrolled again) is found here, as
-            the Refresh step would find it, with nobody at the keyboard.
+            the Refresh step would find it, with nobody at the keyboard. So is a
+            Stack that started serving over TLS: it closed the clear port this
+            bridge asked on, so the name to ask by is read from its certificate
+            at the same address (tls.async_stack_moved_to_tls).
             """
             base_url = entry.data.get(CONF_API_BASE_URL) or DEFAULT_CLOUD_API_BASE_URL
             address = entry.data.get(CONF_API_ADDRESS)
+            token = entry.data.get(CONF_BRIDGE_TOKEN) or ""
             try:
-                found = await async_fetch_connection(hass, base_url, entry.data.get(CONF_BRIDGE_TOKEN) or "", address)
+                try:
+                    found = await async_fetch_connection(hass, base_url, token, address)
+                except EnrollmentError as err:
+                    moved = await async_stack_moved_to_tls(hass, base_url) if err.code == "cannot_connect" else None
+                    if moved is None:
+                        raise
+                    base_url, address = moved
+                    _LOGGER.info("The Turzi Stack at %s now serves over TLS as %s; asking it for this bridge's connection", address, URL(base_url).host)
+                    found = await async_fetch_connection(hass, base_url, token, address)
             except EnrollmentError as err:
                 if err.code == "token_revoked":
                     await _on_unlinked()
                 else:
-                    _LOGGER.warning("The broker refused this bridge's login and Turzi could not be asked for it (%s)", err.code)
+                    _LOGGER.warning("The broker could not be reached with this bridge's connection and Turzi could not be asked for it (%s)", err.code)
                 return
             data = connection_data(found, base_url, address)
             if all(entry.data.get(key) == value for key, value in data.items()):
-                _LOGGER.warning("The broker refused this bridge's login, and Turzi gives the same one: the building's broker has not caught up yet")
+                _LOGGER.warning("The broker could not be reached with this bridge's connection, and Turzi gives the same one: the building's broker has not caught up yet")
                 return
-            _LOGGER.info("Turzi gave this bridge a new broker login; reconnecting with it")
+            _LOGGER.info("Turzi gave this bridge a new broker connection; reconnecting with it")
             hass.config_entries.async_update_entry(entry, data={**entry.data, **data})
             hass.config_entries.async_schedule_reload(entry.entry_id)
 
-        bridge.login_refused_callback = _on_login_refused
+        bridge.connection_refused_callback = _ask_for_connection
 
     async def _start_bridge(_hass: HomeAssistant) -> None:
         """Start the bridge once HA has finished starting."""

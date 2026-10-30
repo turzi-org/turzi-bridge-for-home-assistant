@@ -102,3 +102,46 @@ async def test_what_the_stack_gave_and_what_the_api_answered_are_kept(hass: Home
     data = done["data"]
     assert (data[CONF_BROKER], data[CONF_USE_TLS], data[CONF_TLS_SERVER_NAME]) == (ADDRESS, True, NAME)
     assert (data[CONF_API_BASE_URL], data[CONF_API_ADDRESS]) == (BY_NAME, ADDRESS)
+
+
+# --- A Stack's name, read from its certificate (#1005) -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("name", "ok"),
+    [
+        (NAME, True),
+        ("xb6duy8p6q.staging.stack.turzi.cloud", True),
+        ("t2e0a5ywy2.dev.stack.turzi.cloud", True),
+        ("stack.turzi.cloud", False),
+        ("a.b.c.stack.turzi.cloud", False),
+        ("x.stack.turzi.cloud.example.com", False),
+        ("api.turzi.com", False),
+        ("x.stack-turzi.cloud", False),
+    ],
+)
+def test_only_a_stacks_name_is_one(name: str, ok: bool) -> None:
+    assert tls.is_stack_name(name) is ok
+
+
+def test_the_name_is_the_certificates_one_stack_name() -> None:
+    assert tls.stack_name_in({"subjectAltName": (("DNS", NAME.upper()),)}) == NAME
+    assert tls.stack_name_in({"subjectAltName": (("DNS", "api.turzi.com"),)}) is None
+    # Two Stacks on one certificate is not something the platform issues.
+    assert tls.stack_name_in({"subjectAltName": (("DNS", NAME), ("DNS", "zzz.stack.turzi.cloud"))}) is None
+    assert tls.stack_name_in({}) is None
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://api.turzi.com/api/v2", BY_NAME, BY_ADDRESS, "http://stack.local:8126/api/v2", f"http://{ADDRESS}/api/v2"],
+)
+async def test_only_a_stack_called_in_clear_by_its_address_is_looked_at(hass: HomeAssistant, base_url: str) -> None:
+    with patch.object(tls, "async_stack_name_at") as named:
+        assert await tls.async_stack_moved_to_tls(hass, base_url) is None
+    named.assert_not_called()
+
+
+async def test_a_stack_in_clear_is_asked_again_by_its_name_at_its_address(hass: HomeAssistant) -> None:
+    with patch.object(tls, "async_stack_name_at", return_value=NAME):
+        assert await tls.async_stack_moved_to_tls(hass, f"http://{ADDRESS}:8126/api/v2") == (BY_NAME, ADDRESS)

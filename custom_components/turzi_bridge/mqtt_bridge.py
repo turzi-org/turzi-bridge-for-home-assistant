@@ -74,8 +74,9 @@ _PUBLISHED_SAVE_DELAY = 10
 _RECONNECT_MIN_DELAY = 5
 _RECONNECT_MAX_DELAY = 60
 _RECONNECT_BACKOFF_FACTOR = 2
-# A refused login asks the platform for this bridge's login again no more often than this.
-_LOGIN_REFRESH_INTERVAL = 300
+# A refused login or an unreachable broker asks the platform for this bridge's
+# connection again no more often than this.
+_CONNECTION_REFRESH_INTERVAL = 300
 
 
 def _login_refused(err: Exception) -> bool:
@@ -84,6 +85,16 @@ def _login_refused(err: Exception) -> bool:
         return False
     rc = getattr(err, "rc", None)
     return getattr(rc, "value", rc) in (4, 5, 134, 135)
+
+
+def _unreachable(err: Exception) -> bool:
+    """Nobody took the connection: refused, timed out, or no route to the broker.
+
+    aiomqtt reports a failed socket as a bare MqttError with the OSError's text,
+    while a broker that answered gives a CONNACK code (MqttConnectError) and a
+    refused operation a code of its own (MqttCodeError).
+    """
+    return type(err) is aiomqtt.MqttError
 
 
 def _suback_refused(codes: Any) -> bool:
@@ -192,11 +203,13 @@ class TurziMqttBridge:
         # Called when the platform unlinks this bridge (config/unlink):
         # instant feedback instead of waiting for the next 401.
         self.unlink_callback = None
-        # Called when the building's broker refuses this bridge's login (cloud
-        # mode): the platform derives it from the building connector, so the
-        # bridge asks for it again instead of retrying a stale one for ever.
-        self.login_refused_callback = None
-        self._login_asked_at: float | None = None
+        # Called when the building's broker refuses this bridge's login, or
+        # nobody answers where it was told to connect (cloud mode): the platform
+        # derives the login from the building connector, and a Stack moves its
+        # broker to TLS once it has a certificate, so the bridge asks for its
+        # connection again instead of retrying a stale one for ever.
+        self.connection_refused_callback = None
+        self._connection_asked_at: float | None = None
         self.config_revision: int | None = None
 
         # Status tracking (exposed via turzi/status WebSocket)
@@ -643,12 +656,19 @@ class TurziMqttBridge:
                 self._client = None
                 if self._stopping:
                     break
-                if _login_refused(err) and self.login_refused_callback is not None:
+                refused = _login_refused(err)
+                unreachable = self._connection_status != "connected" and _unreachable(err)
+                if (refused or unreachable) and self.connection_refused_callback is not None:
                     now = self.hass.loop.time()
-                    if self._login_asked_at is None or now - self._login_asked_at >= _LOGIN_REFRESH_INTERVAL:
-                        self._login_asked_at = now
-                        self._log_event("warning", "The broker refused this bridge's login. Asking Turzi for the current one…")
-                        self.hass.async_create_task(self.login_refused_callback(), "turzi_refresh_login")
+                    if self._connection_asked_at is None or now - self._connection_asked_at >= _CONNECTION_REFRESH_INTERVAL:
+                        self._connection_asked_at = now
+                        self._log_event(
+                            "warning",
+                            "The broker refused this bridge's login. Asking Turzi for the current one…"
+                            if refused
+                            else "Nobody answered at the broker. Asking Turzi where it is now…",
+                        )
+                        self.hass.async_create_task(self.connection_refused_callback(), "turzi_refresh_connection")
                 if self._tls_server_name and self._connection_status != "connected":
                     # It never connected this time: the other way next (the address, or the name).
                     self._by_name = not self._by_name

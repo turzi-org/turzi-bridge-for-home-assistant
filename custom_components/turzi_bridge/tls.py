@@ -10,6 +10,9 @@ try, and is how a Stack whose address changed is found again.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import re
 import ssl
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -24,6 +27,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+# A Turzi Stack's name: one label of its own under an environment's Stack zone
+# (`<id>.stack.turzi.cloud`, `<id>.<env>.stack.turzi.cloud`). Only the platform
+# can have a public certificate issued for such a name: the zones are ours.
+_STACK_NAME = re.compile(r"^[a-z0-9]+(\.[a-z0-9-]+)?\.stack\.turzi\.cloud$")
+_DISCOVER_TIMEOUT = 10
 
 
 class _NamedContext(ssl.SSLContext):
@@ -119,3 +130,71 @@ async def async_request(
         return
     assert unreachable is not None
     raise unreachable
+
+
+def is_stack_name(name: str) -> bool:
+    """A name a Turzi Stack can hold, and nothing else's."""
+    return bool(_STACK_NAME.match(name))
+
+
+def _chain_context() -> ssl.SSLContext:
+    """Verifies the chain and the dates, not a name: the name is what is being learned."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.verify_flags |= getattr(ssl, "VERIFY_X509_STRICT", 0) | getattr(ssl, "VERIFY_X509_PARTIAL_CHAIN", 0)
+    context.load_verify_locations(_authorities())
+    return context
+
+
+def stack_name_in(certificate: dict[str, Any]) -> str | None:
+    """The one Stack name a verified certificate is for, or None."""
+    names = {value.lower() for kind, value in certificate.get("subjectAltName", ()) if kind == "DNS"}
+    found = [name for name in names if is_stack_name(name)]
+    return found[0] if len(found) == 1 else None
+
+
+async def async_stack_name_at(hass: HomeAssistant, address: str, port: int) -> str | None:
+    """The name of the Stack serving TLS at this address, read from its certificate.
+
+    For a bridge that knew its Stack while it still served in clear: once the
+    Stack has its certificate it closes every clear port (BUILDING_TLS.md D4),
+    the bridge's way to ask for its connection included, and the name to
+    verify is in the answer it can no longer get. The address is the one this
+    installation already trusted; the certificate must chain to a public
+    authority and be for a Stack's name, which only the platform can obtain.
+    Calls made with the name are then verified for it as any other.
+    """
+    context = await hass.async_add_executor_job(_chain_context)
+    writer = None
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(address, port, ssl=context),
+            _DISCOVER_TIMEOUT,
+        )
+        certificate = writer.get_extra_info("peercert") or {}
+    except (OSError, ssl.SSLError, TimeoutError) as err:
+        _LOGGER.debug("No Turzi Stack with a trusted certificate at %s:%s (%s)", address, port, err)
+        return None
+    finally:
+        if writer is not None:
+            writer.close()
+    name = stack_name_in(certificate)
+    if name is None:
+        _LOGGER.warning("The certificate at %s:%s is not a Turzi Stack's; not using it", address, port)
+    return name
+
+
+async def async_stack_moved_to_tls(hass: HomeAssistant, base_url: str) -> tuple[str, str] | None:
+    """Where to ask now, when the Stack this bridge called in clear serves only TLS.
+
+    Returns the API's base URL by the Stack's name and the address to dial, or
+    None when the URL was not a Stack's in clear or nobody there is a Stack.
+    """
+    url = URL(base_url)
+    if url.scheme != "http" or not url.host or not _is_address(url.host) or url.explicit_port is None:
+        return None
+    name = await async_stack_name_at(hass, url.host, url.explicit_port)
+    if name is None:
+        return None
+    return str(url.with_scheme("https").with_host(name)), url.host
