@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import aiohttp
 
@@ -56,6 +57,25 @@ class EnrollResult:
     mqtt_tls_server_name: str | None = None
     api_base_url: str | None = None
     api_address: str | None = None
+    # The entry's title from the community's and organization's names, or None
+    # where the API sends none (an older platform): the title stays as it is.
+    title: str | None = None
+
+
+def entry_title(names: Any) -> str | None:
+    """The config entry's title from the API's `names` (BRIDGE_CLOUD_API.md §2, #1160).
+
+    «Turzi · Dev Smoke Test (Turzi)», or «Turzi · Dev Smoke Test» where no
+    organization administers the community. None where there is no community
+    name, so the entry keeps the title it has.
+    """
+    if not isinstance(names, dict):
+        return None
+    community = str(names.get("community") or "").strip()
+    if not community:
+        return None
+    organization = str(names.get("organization") or "").strip()
+    return f"Turzi · {community} ({organization})" if organization else f"Turzi · {community}"
 
 
 async def async_enroll(
@@ -159,6 +179,7 @@ async def async_enroll(
             mqtt_tls_server_name=str(mqtt["tls_server_name"]) if mqtt.get("tls_server_name") else None,
             api_base_url=str(api["base_url"]) if (api := body.get("api") or {}).get("base_url") else None,
             api_address=str(api["address"]) if api.get("address") else None,
+            title=entry_title(body.get("names")),
         )
     except (KeyError, TypeError, ValueError) as err:
         _LOGGER.error("Malformed enrollment response: %s", err)
@@ -177,6 +198,7 @@ class ConnectionResult:
     mqtt_tls_server_name: str | None = None
     api_base_url: str | None = None
     api_address: str | None = None
+    title: str | None = None
 
 
 async def async_fetch_connection(
@@ -223,6 +245,7 @@ async def async_fetch_connection(
             mqtt_tls_server_name=str(mqtt["tls_server_name"]) if mqtt.get("tls_server_name") else None,
             api_base_url=str(api["base_url"]) if api.get("base_url") else None,
             api_address=str(api["address"]) if api.get("address") else None,
+            title=entry_title(body.get("names")),
         )
     except (KeyError, TypeError, ValueError) as err:
         _LOGGER.error("Malformed connection answer: %s", err)

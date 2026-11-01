@@ -35,6 +35,7 @@ from homeassistant.helpers.issue_registry import (
     async_delete_issue,
 )
 
+from .enrollment import entry_title
 from .tls import async_post
 from .scope import (
     blocked_of,
@@ -284,6 +285,12 @@ class TurziCloudSync:
         self._last_hash = payload["catalog_hash"]
         async_delete_issue(self.hass, DOMAIN, f"token_revoked_{self.entry.entry_id}")
         _LOGGER.debug("Catalog registered (%d entities)", len(entities))
+
+        # The community's and organization's names, sent with every catalog
+        # answer, so a renamed community reaches the title when the bridge starts.
+        title = entry_title(body.get("names"))
+        if title and title != self.entry.title:
+            self.hass.config_entries.async_update_entry(self.entry, title=title)
 
         exposure = body.get("exposure")
         if exposure:

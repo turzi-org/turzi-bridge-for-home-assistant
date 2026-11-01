@@ -138,6 +138,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
                 else:
                     _LOGGER.warning("The broker could not be reached with this bridge's connection and Turzi could not be asked for it (%s)", err.code)
                 return
+            if found.title and found.title != entry.title:
+                hass.config_entries.async_update_entry(entry, title=found.title)
             data = connection_data(found, base_url, address)
             if all(entry.data.get(key) == value for key, value in data.items()):
                 _LOGGER.warning("The broker could not be reached with this bridge's connection, and Turzi gives the same one: the building's broker has not caught up yet")

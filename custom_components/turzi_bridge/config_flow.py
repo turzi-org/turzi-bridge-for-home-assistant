@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import ssl
 from typing import Any
@@ -152,6 +153,23 @@ def _enrolled_data(result: EnrollResult, base_url: str, api_address: str | None)
     }
 
 
+def _not_an_address(value: Any) -> bool:
+    """Whether a «Turzi Stack address» typed in is something other than a bare IP (#1160).
+
+    The field is the address the Stack's name is dialled at, such as
+    10.0.1.134. A URL there used to reach the request and end in a bare
+    «Failed to connect»; it is refused at the form instead, saying why.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return True
+    return False
+
+
 def _cloud_schema(default_base_url: str) -> vol.Schema:
     """Enrollment form: the key is short-lived and single-use — a plain
     visible text field, never password-masked."""
@@ -215,6 +233,9 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Cloud setup: exchange an enrollment token for full provisioning."""
         errors: dict[str, str] = {}
+        if user_input is not None and _not_an_address(user_input.get(CONF_API_ADDRESS)):
+            errors[CONF_API_ADDRESS] = "address_not_ip"
+            user_input = None
 
         if user_input is not None:
             base_url = (
@@ -250,7 +271,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     updates=datos, reload_on_update=True
                 )
                 self._data = datos
-                self._title = f"turzi Bridge for Home Assistant — {result.house_id}"
+                self._title = result.title or f"turzi Bridge for Home Assistant — {result.house_id}"
                 return await self.async_step_settings()
 
         return self.async_show_form(
@@ -292,6 +313,9 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
         `config_revision` survive untouched.
         """
         errors: dict[str, str] = {}
+        if user_input is not None and _not_an_address(user_input.get(CONF_API_ADDRESS)):
+            errors[CONF_API_ADDRESS] = "address_not_ip"
+            user_input = None
 
         if user_input is not None:
             base_url = (
@@ -328,7 +352,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
                 return self.async_update_reload_and_abort(
                     entry,
-                    title=f"turzi Bridge for Home Assistant — {result.house_id}",
+                    title=result.title or f"turzi Bridge for Home Assistant — {result.house_id}",
                     data=_enrolled_data(
                         result, base_url, user_input.get(CONF_API_ADDRESS) or entry.data.get(CONF_API_ADDRESS)
                     ),
@@ -486,6 +510,9 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
+        if user_input is not None and _not_an_address(user_input.get(CONF_API_ADDRESS)):
+            errors[CONF_API_ADDRESS] = "address_not_ip"
+            user_input = None
 
         if user_input is not None:
             base_url = (user_input.get(CONF_API_BASE_URL) or entry.data.get(CONF_API_BASE_URL) or DEFAULT_CLOUD_API_BASE_URL).strip()
@@ -497,6 +524,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_update_reload_and_abort(
                     entry,
+                    **({"title": found.title} if found.title else {}),
                     data_updates=connection_data(found, base_url, address),
                     reason="refresh_successful",
                 )

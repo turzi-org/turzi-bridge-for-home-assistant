@@ -118,6 +118,7 @@
       }
     },
     "error": {
+      "address_not_ip": "Escribe solo la dirección IP del Turzi Stack, por ejemplo 10.0.1.134, nunca una URL. Déjalo vacío cuando lo hagas a mano.",
       "cannot_connect": "No se pudo conectar. Revisa la configuración y la red.",
       "invalid_host": "Host del broker inválido.",
       "token_invalid": "Este código de instalación es desconocido, expiró o ya fue usado. Genera uno nuevo en el Turzi Community Manager.",

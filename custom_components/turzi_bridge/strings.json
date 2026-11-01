@@ -118,6 +118,7 @@
       }
     },
     "error": {
+      "address_not_ip": "Type only the Turzi Stack's IP address, such as 10.0.1.134, never a URL. Leave it empty when you do this by hand.",
       "cannot_connect": "Failed to connect. Please check your settings and network.",
       "invalid_host": "Invalid broker hostname.",
       "token_invalid": "This enrollment key is unknown, expired, or already used. Generate a new one in the Turzi Community Manager.",
