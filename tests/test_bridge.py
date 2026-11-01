@@ -175,10 +175,10 @@ async def test_an_event_entity_leaves_only_as_a_turzi_event(hass: HomeAssistant)
 
     hass.states.async_set("event.puerta_akuvox", "2026-10-19T12:00:00+00:00", {
         "event_type": "valid_card", "event_types": ["valid_card", "invalid_card"],
-        "username": "Olga Pérez", "user_id": "1234", "card_no": "A1B2C3D4",
+        "username": "Olga Pérez", "user_id": "user-1234", "card_no": "A1B2C3D4",
     })
     hass.states.async_set("event.timbre", "2026-10-19T12:00:01+00:00", {"event_type": "ring", "device_class": "doorbell"})
-    hass.states.async_set("event.hik", "2026-10-19T12:00:02+00:00", {"event_type": "door_open_abnormal", "employee_no": "77", "name": "x"})
+    hass.states.async_set("event.hik", "2026-10-19T12:00:02+00:00", {"event_type": "door_open_abnormal", "employee_no": "emp-77", "name": "x"})
     hass.states.async_set("event.otra_cosa", "2026-10-19T12:00:03+00:00", {"event_type": "tamper", "name": "Olga"})
     await hass.async_block_till_done()
 
@@ -190,7 +190,8 @@ async def test_an_event_entity_leaves_only_as_a_turzi_event(hass: HomeAssistant)
     assert published[f"house/{HOUSE}/state/event/hik"]["attributes"]["event_type"] == "door_forced"
     assert f"house/{HOUSE}/state/event/otra_cosa" not in published
     everything = json.dumps(list(published.values()))
-    for identity in ("Olga", "1234", "A1B2C3D4", "employee_no", "77"):
+    # Values no timestamp can hold: a bare "77" or "1234" turns up in last_changed's microseconds now and then (#1161).
+    for identity in ("Olga", "user-1234", "A1B2C3D4", "employee_no", "emp-77"):
         assert identity not in everything
 
 
