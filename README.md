@@ -1,4 +1,4 @@
-# turzi Bridge for Home Assistant
+# Turzi Edge Stack
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/turzi-org/turzi-bridge-for-home-assistant/main/assets/turzi-logo.png" alt="Turzi" width="120" />
@@ -19,7 +19,7 @@
 
 ## Overview
 
-**turzi Bridge** connects a Home Assistant instance to the Turzi platform (or any Turzi Protocol consumer) over MQTT, implementing **Turzi Protocol v1.1** ([PROTOCOL.md](PROTOCOL.md)):
+**Turzi Edge Stack** connects a Home Assistant instance to the Turzi platform (or any Turzi Protocol consumer) over MQTT, implementing **Turzi Protocol v1.1** ([PROTOCOL.md](PROTOCOL.md)):
 
 - **State out** — every exposed entity's state, retained, with domain attributes (including the capability data — mode lists, ranges — that lets remote UIs render exactly the controls each device supports) and **origin attribution**: each state change is classified as commanded (`turzi`, with its `command_id`), HA-UI (`core_user`), `automation`, or `physical` (wall button, remote). This is what makes a complete audit trail possible downstream.
 - **Commands in** — incoming commands are validated, **deduplicated** by `command_id`, **expired** if delivered late (TTL with a local 300 s ceiling — a stale unlock must never execute), translated to HA service calls, and **acknowledged** (`executed` / `failed` with reason).
@@ -46,7 +46,7 @@ One instance serves one `house/{house_id}/` namespace. A "house" can be a single
 
 1. Open **HACS** → **Integrations** → ⋮ menu → **Custom repositories**
 2. Add `https://github.com/turzi-org/turzi-bridge-for-home-assistant` as a custom repository (category: **Integration**)
-3. Find **turzi Bridge** in HACS and click **Download**
+3. Find **Turzi Edge Stack** in HACS and click **Download**
 4. Restart Home Assistant
 
 ### Manual
@@ -58,7 +58,7 @@ One instance serves one `house/{house_id}/` namespace. A "house" can be a single
 
 ## Setup
 
-**Settings → Devices & Services → Add Integration → turzi Bridge.** The flow offers two modes:
+**Settings → Devices & Services → Add Integration → Turzi Edge Stack.** The flow offers two modes:
 
 ### Connect to Turzi Cloud (enrollment token)
 
@@ -87,7 +87,7 @@ The connection is tested before the entry is created. Broker settings can be cha
 
 ## Exposure & privacy
 
-What gets published is decided **here, at the bridge**, on the bridge's page in Home Assistant (**Settings → Devices & services → turzi Bridge**). Each filter and each exclusion is a row there, with an edit button and a delete action, and each kind has its own add button:
+What gets published is decided **here, at the bridge**, on the bridge's page in Home Assistant (**Settings → Devices & services → Turzi Edge Stack**). Each filter and each exclusion is a row there, with an edit button and a delete action, and each kind has its own add button:
 
 | Button | Row |
 |---|---|

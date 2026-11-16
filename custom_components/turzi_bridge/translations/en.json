@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up turzi Bridge",
+        "title": "Set up Turzi Edge Stack",
         "menu_options": {
           "cloud": "Connect to Turzi Cloud (enrollment key)",
           "manual": "Self-hosted / manual broker setup"
@@ -135,7 +135,7 @@
     },
     "abort": {
       "already_configured": "This house ID is already configured.",
-      "house_already_configured": "That installation key belongs to a house another turzi Bridge entry already holds, so this entry was left untouched. The key has been used up, and enrolling it revoked that other entry's connection — get a new key and use it there.",
+      "house_already_configured": "That installation key belongs to a house another Turzi Edge Stack entry already holds, so this entry was left untouched. The key has been used up, and enrolling it revoked that other entry's connection — get a new key and use it there.",
       "reconfigure_successful": "Broker settings updated successfully.",
       "reauth_successful": "Reconnected successfully.",
       "refresh_successful": "Connection found. The bridge is reconnecting."
@@ -148,7 +148,7 @@
     },
     "unlinked": {
       "title": "Bridge unlinked from Turzi",
-      "description": "The Turzi platform unlinked this bridge. Reconnect it with a new installation key (Settings → Devices & Services → turzi Bridge → Reconfigure), or remove the integration."
+      "description": "The Turzi platform unlinked this bridge. Reconnect it with a new installation key (Settings → Devices & Services → Turzi Edge Stack → Reconfigure), or remove the integration."
     }
   },
   "options": {

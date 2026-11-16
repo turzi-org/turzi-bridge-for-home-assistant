@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configurar turzi Bridge",
+        "title": "Configurar Turzi Edge Stack",
         "menu_options": {
           "cloud": "Conectar a Turzi Cloud (código de instalación)",
           "manual": "Broker propio / configuración manual"
@@ -135,7 +135,7 @@
     },
     "abort": {
       "already_configured": "Este ID de casa ya está configurado.",
-      "house_already_configured": "Ese código de instalación pertenece a una casa que ya tiene otra entrada de turzi Bridge, así que esta entrada quedó intacta. El código ya se consumió y el enrolamiento revocó la conexión de esa otra entrada — pide uno nuevo y úsalo ahí.",
+      "house_already_configured": "Ese código de instalación pertenece a una casa que ya tiene otra entrada de Turzi Edge Stack, así que esta entrada quedó intacta. El código ya se consumió y el enrolamiento revocó la conexión de esa otra entrada — pide uno nuevo y úsalo ahí.",
       "reconfigure_successful": "Configuración del broker actualizada.",
       "reauth_successful": "Reconectado correctamente.",
       "refresh_successful": "Conexión encontrada. El puente se está reconectando."
@@ -148,7 +148,7 @@
     },
     "unlinked": {
       "title": "Bridge desvinculado de Turzi",
-      "description": "La plataforma Turzi desvinculó este bridge. Reconéctalo con un nuevo código de instalación (Ajustes → Dispositivos y servicios → turzi Bridge → Reconfigurar), o elimina la integración."
+      "description": "La plataforma Turzi desvinculó este bridge. Reconéctalo con un nuevo código de instalación (Ajustes → Dispositivos y servicios → Turzi Edge Stack → Reconfigurar), o elimina la integración."
     }
   },
   "options": {

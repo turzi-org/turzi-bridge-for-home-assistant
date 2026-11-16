@@ -1,5 +1,5 @@
 {
-  "name": "turzi Bridge for Home Assistant",
+  "name": "Turzi Edge Stack",
   "content_in_root": false,
   "render_readme": true,
   "domains": ["turzi_bridge"],

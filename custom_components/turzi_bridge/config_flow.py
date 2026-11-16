@@ -1,4 +1,4 @@
-"""Config flow for the turzi Bridge integration."""
+"""Config flow for the Turzi Edge Stack integration."""
 
 from __future__ import annotations
 
@@ -187,7 +187,7 @@ def _cloud_schema(default_base_url: str) -> vol.Schema:
 
 
 class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle the config flow for turzi Bridge.
+    """Handle the config flow for Turzi Edge Stack.
 
     Two setup modes (PROTOCOL.md §4 deployment modes):
     - cloud: paste a single-use enrollment token; broker connection and
@@ -271,7 +271,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     updates=datos, reload_on_update=True
                 )
                 self._data = datos
-                self._title = result.title or f"turzi Bridge for Home Assistant — {result.house_id}"
+                self._title = result.title or f"Turzi Edge Stack — {result.house_id}"
                 return await self.async_step_settings()
 
         return self.async_show_form(
@@ -352,7 +352,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
                 return self.async_update_reload_and_abort(
                     entry,
-                    title=result.title or f"turzi Bridge for Home Assistant — {result.house_id}",
+                    title=result.title or f"Turzi Edge Stack — {result.house_id}",
                     data=_enrolled_data(
                         result, base_url, user_input.get(CONF_API_ADDRESS) or entry.data.get(CONF_API_ADDRESS)
                     ),
@@ -394,7 +394,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 self._data = {**user_input, CONF_MODE: "manual"}
-                self._title = f"turzi Bridge for Home Assistant — {user_input[CONF_HOUSE_ID]}"
+                self._title = f"Turzi Edge Stack — {user_input[CONF_HOUSE_ID]}"
                 return await self.async_step_settings()
 
         return self.async_show_form(
@@ -470,7 +470,7 @@ class TurziAppConnectorConfigFlow(ConfigFlow, domain=DOMAIN):
             if not errors:
                 return self.async_update_reload_and_abort(
                     entry,
-                    title=f"turzi Bridge for Home Assistant — {entry.data[CONF_HOUSE_ID]}",
+                    title=f"Turzi Edge Stack — {entry.data[CONF_HOUSE_ID]}",
                     data_updates=user_input,
                 )
 

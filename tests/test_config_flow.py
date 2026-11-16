@@ -69,7 +69,7 @@ async def test_cloud_setup_enrolls_then_asks_the_options(hass: HomeAssistant) ->
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_AUTO_ADD_NEW: False})
 
     entry = result["result"]
-    assert entry.title == "turzi Bridge for Home Assistant — 937098a0"
+    assert entry.title == "Turzi Edge Stack — 937098a0"
     assert entry.data["bridge_token"] == "t" and entry.data["mode"] == "cloud"
     assert entry.options[CONF_AUTO_ADD_NEW] is False
     assert len(entry.subentries) == len(DEFAULT_FILTERS)

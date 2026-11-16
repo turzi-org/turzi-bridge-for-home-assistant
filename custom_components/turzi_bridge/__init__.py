@@ -189,7 +189,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     _LOGGER.info(
-        "turzi Bridge set up for house '%s' — will connect after HA start",
+        "Turzi Edge Stack set up for house '%s' — will connect after HA start",
         entry.data.get("house_id", "unknown"),
     )
     return True
@@ -228,7 +228,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> bo
         hass.data.pop(DOMAIN)
 
     _LOGGER.info(
-        "turzi Bridge unloaded for house '%s'",
+        "Turzi Edge Stack unloaded for house '%s'",
         entry.data.get("house_id", "unknown"),
     )
     return True
@@ -308,7 +308,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> b
     """
     if entry.version > 3:
         _LOGGER.error(
-            "turzi Bridge: '%s' was configured by a newer version of the bridge "
+            "Turzi Edge Stack: '%s' was configured by a newer version of the bridge "
             "(entry version %s). Update the bridge instead of downgrading it.",
             entry.data.get("house_id", "unknown"),
             entry.version,
@@ -324,11 +324,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> b
         if pre_branch and curated:
             options[LEGACY_INCLUDED_DOMAINS] = []
             _LOGGER.warning(
-                "turzi Bridge: '%s' upgraded to the new exposure model. Listed "
+                "Turzi Edge Stack: '%s' upgraded to the new exposure model. Listed "
                 "domains are now exposed wholesale, so the previous list (%s) "
                 "was cleared to keep exposure exactly as it is today — the %d "
                 "entities already chosen, nothing new. Re-add domains under "
-                "Settings → Devices → turzi Bridge → Configure to expose them "
+                "Settings → Devices → Turzi Edge Stack → Configure to expose them "
                 "wholesale.",
                 entry.data.get("house_id", "unknown"),
                 ", ".join(sorted(previous)) or "none",
@@ -350,7 +350,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> b
                 )
             )
             _LOGGER.warning(
-                "turzi Bridge: '%s' now publishes binary sensors of these device "
+                "Turzi Edge Stack: '%s' now publishes binary sensors of these device "
                 "classes: %s. A door's contact is what the platform's open-door "
                 "alert reads, and the rest are life-safety sensors. Delete that "
                 "filter on the bridge's page under Settings → Devices & services, "
