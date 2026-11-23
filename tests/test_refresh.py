@@ -262,7 +262,8 @@ async def test_the_loop_asks_once_when_nobody_answers(hass: HomeAssistant) -> No
 
 # --- A Stack whose name changed (#2096) ------------------------------------------------------------------------------
 
-OLD_NAME = "olddevname.dev.stack.turzi.cloud"
+# The same Stack id as NAME, in dev's old zone: the rename #2096 is about.
+OLD_NAME = "k7q2m9xw3d.dev.stack.turzi.cloud"
 # A bridge that knows its Stack by an address and a name the Stack no longer holds.
 RENAMED = {
     **BEFORE, CONF_PORT: 8883, CONF_USE_TLS: True, CONF_TLS_SERVER_NAME: OLD_NAME,
@@ -312,4 +313,20 @@ async def test_a_stack_that_still_holds_its_name_changes_nothing(hass: HomeAssis
          patch.object(hass.config_entries, "async_schedule_reload", MagicMock()) as reload:
         await bridge.connection_refused_callback()
     assert fetch.await_count == 1 and dict(entry.data) == RENAMED
+    reload.assert_not_called()
+
+
+async def test_another_stack_at_the_address_is_never_sent_the_token(hass: HomeAssistant) -> None:
+    from custom_components.turzi_bridge.enrollment import EnrollmentError
+
+    entry, bridge = await _set_up(hass, dict(RENAMED))
+    fetch = AsyncMock(side_effect=EnrollmentError("cannot_connect"))
+    # A genuine Stack certificate, but for another Stack's id (#2096, QA Lead).
+    with patch("custom_components.turzi_bridge.async_fetch_connection", fetch), \
+         patch("custom_components.turzi_bridge.tls.async_stack_name_at", AsyncMock(return_value="zzzzzzzzzz.stack-dev.turzi.cloud")), \
+         patch.object(hass.config_entries, "async_schedule_reload", MagicMock()) as reload:
+        await bridge.connection_refused_callback()
+    # Only the request by its own old name went out; nothing by the other Stack's.
+    assert fetch.await_count == 1 and fetch.await_args.args[1] == RENAMED[CONF_API_BASE_URL]
+    assert dict(entry.data) == RENAMED
     reload.assert_not_called()

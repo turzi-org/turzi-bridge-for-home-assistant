@@ -154,7 +154,8 @@ async def test_a_stack_in_clear_is_asked_again_by_its_name_at_its_address(hass: 
         assert await tls.async_stack_moved_to_tls(hass, f"http://{ADDRESS}:8126/api/v2") == (BY_NAME, ADDRESS)
 
 
-OLD_NAME = "olddevname.dev.stack.turzi.cloud"
+# The same Stack id as NAME, in dev's old zone: the rename #2096 is about.
+OLD_NAME = "k7q2m9xw3d.dev.stack.turzi.cloud"
 
 
 @pytest.mark.parametrize(
@@ -183,4 +184,12 @@ async def test_a_renamed_stack_is_asked_by_its_new_name_at_the_same_address(hass
 @pytest.mark.parametrize("found", [None, OLD_NAME])
 async def test_no_stack_or_the_same_name_is_no_new_name(hass: HomeAssistant, found: str | None) -> None:
     with patch.object(tls, "async_stack_name_at", return_value=found):
+        assert await tls.async_stack_renamed(hass, f"https://{OLD_NAME}:8126/api/v2", ADDRESS) is None
+
+
+@pytest.mark.parametrize("other", ["zzzzzzzzzz.stack-dev.turzi.cloud", "zzzzzzzzzz.dev.stack.turzi.cloud", "zzzzzzzzzz.stack.turzi.cloud"])
+async def test_another_stacks_certificate_never_renames_the_bridge(hass: HomeAssistant, other: str) -> None:
+    # A genuine certificate for a Stack name, but another Stack's id: whoever holds
+    # its key at this address must not be sent this bridge's token (#2096, QA Lead).
+    with patch.object(tls, "async_stack_name_at", return_value=other):
         assert await tls.async_stack_renamed(hass, f"https://{OLD_NAME}:8126/api/v2", ADDRESS) is None

@@ -213,12 +213,16 @@ async def async_stack_renamed(hass: HomeAssistant, base_url: str, address: str |
     for the new connection. So the name is read from the certificate at the
     address this installation already trusted, under the same rule as
     async_stack_moved_to_tls: it must chain to a public authority and be a
-    Stack's name, which only the platform can obtain. The answer is still the
-    API's, given for this bridge's own token.
+    Stack's name, which only the platform can obtain. And it must be the SAME
+    Stack: the first label, the Stack's id, unchanged, only the zone after it
+    different. Any genuine Stack's certificate chains and matches the rule, so
+    without that whoever held another Stack's key at this address could move
+    the bridge to their Stack and be sent its token (QA Lead's read, #2096).
+    The answer then comes through the Stack, as every call by its name does.
 
     Returns the API's base URL by the new name and the address to dial, or
     None when the URL is not a Stack's by name, no address is known, or the
-    certificate there names no Stack or the same one.
+    certificate there names no Stack, the same name, or another Stack.
     """
     url = URL(base_url)
     host = url.host or ""
@@ -226,5 +230,8 @@ async def async_stack_renamed(hass: HomeAssistant, base_url: str, address: str |
         return None
     name = await async_stack_name_at(hass, address, url.port)
     if name is None or name == host:
+        return None
+    if name.split(".", 1)[0] != host.split(".", 1)[0]:
+        _LOGGER.warning("The certificate at %s is for another Turzi Stack (%s, not %s); not moving to it", address, name, host)
         return None
     return str(url.with_host(name)), address
