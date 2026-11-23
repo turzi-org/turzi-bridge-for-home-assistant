@@ -118,6 +118,13 @@ async def test_what_the_stack_gave_and_what_the_api_answered_are_kept(hass: Home
         ("x.stack.turzi.cloud.example.com", False),
         ("api.turzi.com", False),
         ("x.stack-turzi.cloud", False),
+        # Dev's and staging's zones since 23/11 (#2096).
+        ("t2e0a5ywy2.stack-dev.turzi.cloud", True),
+        ("t2e0a5ywy2.stack-staging.turzi.cloud", True),
+        ("stack-dev.turzi.cloud", False),
+        ("a.b.stack-dev.turzi.cloud", False),
+        ("x.stack-.turzi.cloud", False),
+        ("x.stack-dev.turzi.cloud.example.com", False),
     ],
 )
 def test_only_a_stacks_name_is_one(name: str, ok: bool) -> None:
@@ -145,3 +152,35 @@ async def test_only_a_stack_called_in_clear_by_its_address_is_looked_at(hass: Ho
 async def test_a_stack_in_clear_is_asked_again_by_its_name_at_its_address(hass: HomeAssistant) -> None:
     with patch.object(tls, "async_stack_name_at", return_value=NAME):
         assert await tls.async_stack_moved_to_tls(hass, f"http://{ADDRESS}:8126/api/v2") == (BY_NAME, ADDRESS)
+
+
+OLD_NAME = "olddevname.dev.stack.turzi.cloud"
+
+
+@pytest.mark.parametrize(
+    ("base_url", "address"),
+    [
+        ("https://api.turzi.com/api/v2", ADDRESS),   # the cloud, not a Stack
+        (f"https://{OLD_NAME}:8126/api/v2", None),   # no address this installation trusts
+        (BY_ADDRESS, ADDRESS),                       # already by its address
+        (f"http://{ADDRESS}:8126/api/v2", ADDRESS),  # in clear: async_stack_moved_to_tls's case
+    ],
+)
+async def test_only_a_stack_by_name_with_a_known_address_is_looked_at_for_a_new_name(
+    hass: HomeAssistant, base_url: str, address: str | None
+) -> None:
+    with patch.object(tls, "async_stack_name_at") as named:
+        assert await tls.async_stack_renamed(hass, base_url, address) is None
+    named.assert_not_called()
+
+
+async def test_a_renamed_stack_is_asked_by_its_new_name_at_the_same_address(hass: HomeAssistant) -> None:
+    with patch.object(tls, "async_stack_name_at", return_value=NAME) as named:
+        assert await tls.async_stack_renamed(hass, f"https://{OLD_NAME}:8126/api/v2", ADDRESS) == (BY_NAME, ADDRESS)
+    named.assert_called_once_with(hass, ADDRESS, 8126)
+
+
+@pytest.mark.parametrize("found", [None, OLD_NAME])
+async def test_no_stack_or_the_same_name_is_no_new_name(hass: HomeAssistant, found: str | None) -> None:
+    with patch.object(tls, "async_stack_name_at", return_value=found):
+        assert await tls.async_stack_renamed(hass, f"https://{OLD_NAME}:8126/api/v2", ADDRESS) is None

@@ -258,3 +258,58 @@ async def test_the_loop_asks_once_when_nobody_answers(hass: HomeAssistant) -> No
         await bridge._connection_loop()
         await hass.async_block_till_done()
     assert attempts == 3 and asked.await_count == 1
+
+
+# --- A Stack whose name changed (#2096) ------------------------------------------------------------------------------
+
+OLD_NAME = "olddevname.dev.stack.turzi.cloud"
+# A bridge that knows its Stack by an address and a name the Stack no longer holds.
+RENAMED = {
+    **BEFORE, CONF_PORT: 8883, CONF_USE_TLS: True, CONF_TLS_SERVER_NAME: OLD_NAME,
+    CONF_API_BASE_URL: f"https://{OLD_NAME}:8126/api/v2", CONF_API_ADDRESS: ADDRESS,
+}
+
+
+def test_a_certificate_for_another_name_counts_as_unreachable() -> None:
+    # What aiomqtt raises when the Stack at the address holds a new name: the
+    # TLS failure as a bare MqttError, so the loop asks Turzi (#2096).
+    assert _unreachable(aiomqtt.MqttError(
+        "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, "
+        f"certificate is not valid for '{OLD_NAME}'. (_ssl.c:1082)"
+    ))
+
+
+async def test_a_renamed_stack_is_asked_by_the_name_on_its_certificate(hass: HomeAssistant) -> None:
+    from custom_components.turzi_bridge.enrollment import ConnectionResult, EnrollmentError
+
+    entry, bridge = await _set_up(hass, dict(RENAMED))
+    found = ConnectionResult(
+        mqtt_host=ADDRESS, mqtt_port=8883, mqtt_tls=True, mqtt_username="bridge-house-1", mqtt_password="new",
+        mqtt_tls_server_name=NAME, api_base_url=BY_NAME, api_address=ADDRESS,
+    )
+    # By the old name, neither way reaches the API: the address fails verification, the name does not resolve.
+    fetch = AsyncMock(side_effect=[EnrollmentError("cannot_connect"), found])
+    with patch("custom_components.turzi_bridge.async_fetch_connection", fetch), \
+         patch("custom_components.turzi_bridge.tls.async_stack_name_at", AsyncMock(return_value=NAME)) as named, \
+         patch.object(hass.config_entries, "async_schedule_reload", MagicMock()) as reload:
+        await bridge.connection_refused_callback()
+    # The address it already had, and nothing else, is where the new name was read.
+    named.assert_awaited_once_with(hass, ADDRESS, 8126)
+    assert fetch.await_args_list[1].args[1:] == (BY_NAME, "token-1", ADDRESS)
+    data = entry.data
+    assert (data[CONF_BROKER], data[CONF_TLS_SERVER_NAME], data[CONF_API_BASE_URL], data[CONF_API_ADDRESS]) == (ADDRESS, NAME, BY_NAME, ADDRESS)
+    assert (data[CONF_HOUSE_ID], data[CONF_BRIDGE_TOKEN], data["password"]) == ("house-1", "token-1", "new")
+    reload.assert_called_once_with(entry.entry_id)
+
+
+async def test_a_stack_that_still_holds_its_name_changes_nothing(hass: HomeAssistant) -> None:
+    from custom_components.turzi_bridge.enrollment import EnrollmentError
+
+    entry, bridge = await _set_up(hass, dict(RENAMED))
+    fetch = AsyncMock(side_effect=EnrollmentError("cannot_connect"))
+    with patch("custom_components.turzi_bridge.async_fetch_connection", fetch), \
+         patch("custom_components.turzi_bridge.tls.async_stack_name_at", AsyncMock(return_value=OLD_NAME)), \
+         patch.object(hass.config_entries, "async_schedule_reload", MagicMock()) as reload:
+        await bridge.connection_refused_callback()
+    assert fetch.await_count == 1 and dict(entry.data) == RENAMED
+    reload.assert_not_called()

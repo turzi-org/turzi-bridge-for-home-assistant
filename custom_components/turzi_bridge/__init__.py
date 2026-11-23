@@ -55,7 +55,7 @@ from .scope import (
     scope_of,
     take_snapshot,
 )
-from .tls import async_stack_moved_to_tls
+from .tls import async_stack_moved_to_tls, async_stack_renamed
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,7 +117,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
             the Refresh step would find it, with nobody at the keyboard. So is a
             Stack that started serving over TLS: it closed the clear port this
             bridge asked on, so the name to ask by is read from its certificate
-            at the same address (tls.async_stack_moved_to_tls).
+            at the same address (tls.async_stack_moved_to_tls). And a Stack
+            whose name changed: the old name fails verification at the address
+            and may not resolve, so the new one is read the same way
+            (tls.async_stack_renamed, #2096).
             """
             base_url = entry.data.get(CONF_API_BASE_URL) or DEFAULT_CLOUD_API_BASE_URL
             address = entry.data.get(CONF_API_ADDRESS)
@@ -126,11 +129,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: TurziConfigEntry) -> boo
                 try:
                     found = await async_fetch_connection(hass, base_url, token, address)
                 except EnrollmentError as err:
-                    moved = await async_stack_moved_to_tls(hass, base_url) if err.code == "cannot_connect" else None
-                    if moved is None:
+                    moved = renamed = None
+                    if err.code == "cannot_connect":
+                        moved = await async_stack_moved_to_tls(hass, base_url)
+                        if moved is None:
+                            renamed = await async_stack_renamed(hass, base_url, address)
+                    if moved is None and renamed is None:
                         raise
-                    base_url, address = moved
-                    _LOGGER.info("The Turzi Stack at %s now serves over TLS as %s; asking it for this bridge's connection", address, URL(base_url).host)
+                    if moved is not None:
+                        base_url, address = moved
+                        _LOGGER.info("The Turzi Stack at %s now serves over TLS as %s; asking it for this bridge's connection", address, URL(base_url).host)
+                    else:
+                        old = URL(base_url).host
+                        base_url, address = renamed
+                        _LOGGER.info("The Turzi Stack at %s is now %s, no longer %s; asking it for this bridge's connection", address, URL(base_url).host, old)
                     found = await async_fetch_connection(hass, base_url, token, address)
             except EnrollmentError as err:
                 if err.code == "token_revoked":

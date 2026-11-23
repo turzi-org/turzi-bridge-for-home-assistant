@@ -30,10 +30,13 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# A Turzi Stack's name: one label of its own under an environment's Stack zone
-# (`<id>.stack.turzi.cloud`, `<id>.<env>.stack.turzi.cloud`). Only the platform
-# can have a public certificate issued for such a name: the zones are ours.
-_STACK_NAME = re.compile(r"^[a-z0-9]+(\.[a-z0-9-]+)?\.stack\.turzi\.cloud$")
+# A Turzi Stack's name: one label of its own under an environment's Stack zone.
+# Production's is `<id>.stack.turzi.cloud`; since 23/11 dev's and staging's are
+# `<id>.stack-dev.turzi.cloud` and `<id>.stack-staging.turzi.cloud` (turzi-apps
+# A10b, #2096), and before that `<id>.<env>.stack.turzi.cloud`, still accepted
+# so a bridge can verify the name it holds until it learns the new one. Only the
+# platform can have a public certificate issued for such a name: the zones are ours.
+_STACK_NAME = re.compile(r"^[a-z0-9]+(\.[a-z0-9-]+\.stack|\.stack-[a-z0-9]+|\.stack)\.turzi\.cloud$")
 _DISCOVER_TIMEOUT = 10
 
 
@@ -198,3 +201,30 @@ async def async_stack_moved_to_tls(hass: HomeAssistant, base_url: str) -> tuple[
     if name is None:
         return None
     return str(url.with_scheme("https").with_host(name)), url.host
+
+
+async def async_stack_renamed(hass: HomeAssistant, base_url: str, address: str | None) -> tuple[str, str] | None:
+    """Where to ask now, when the Stack this bridge reaches by its address holds another name (#2096).
+
+    A Stack's name can change (an environment's Stack zone moved, the Stack
+    was given a new one). The bridge keeps dialling the address and verifying
+    the old name, which the certificate there no longer carries, and the old
+    name may not resolve any more: neither of its ways reaches the API to ask
+    for the new connection. So the name is read from the certificate at the
+    address this installation already trusted, under the same rule as
+    async_stack_moved_to_tls: it must chain to a public authority and be a
+    Stack's name, which only the platform can obtain. The answer is still the
+    API's, given for this bridge's own token.
+
+    Returns the API's base URL by the new name and the address to dial, or
+    None when the URL is not a Stack's by name, no address is known, or the
+    certificate there names no Stack or the same one.
+    """
+    url = URL(base_url)
+    host = url.host or ""
+    if url.scheme != "https" or not address or not is_stack_name(host) or url.port is None:
+        return None
+    name = await async_stack_name_at(hass, address, url.port)
+    if name is None or name == host:
+        return None
+    return str(url.with_host(name)), address
